@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 import RillCore
 
 struct ConsoleView: View {
@@ -82,7 +83,7 @@ struct ConsoleView: View {
                     }.buttonStyle(.borderedProminent).keyboardShortcut(.return, modifiers: .command).disabled(model.busy || model.consoleInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }.padding(12).background(RillTheme.canvas, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RillTheme.border))
             }.padding(20).background(RillTheme.panel.opacity(0.4))
-        }
+        }.onDisappear { model.stopDiagnostics() }
     }
     private var suggestions: [String] {
         let prefix = model.consoleInput.split(separator: " ").first.map(String.init)?.uppercased() ?? ""
@@ -99,11 +100,13 @@ struct OverviewView: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 7) {
                         Text("每一项状态，都有迹可循。").font(.system(size: 23, weight: .semibold))
-                        Text("按需读取 INFO，不在后台持续采样。").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text("按需读取 INFO；趋势需主动开启，离开此页即停止。").font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if let mode = info["redis_mode"] { Text(mode.uppercased()).font(.system(size: 9, weight: .medium, design: .monospaced)).tracking(1).foregroundStyle(.secondary).padding(8).background(.quaternary.opacity(0.3), in: Capsule()) }
                 }
+                trendPanel
+                memoryPanel
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                     MetricCard(title: "已用内存", value: info["used_memory_human"] ?? "—", subtitle: "峰值 \(info["used_memory_peak_human"] ?? "—")", symbol: "memorychip", color: .blue)
                     MetricCard(title: "当前连接", value: info["connected_clients"] ?? "—", subtitle: "阻塞 \(info["blocked_clients"] ?? "—")", symbol: "network", color: .purple)
@@ -127,6 +130,63 @@ struct OverviewView: View {
                 if !model.capabilityStates.isEmpty { capabilitySection }
             }.padding(28).frame(maxWidth: 1100)
         }.overlay { if model.diagnosticsLoading { ProgressView().padding(15).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10)) } }
+    }
+    private var trendPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("短窗口趋势").font(.headline)
+                Spacer()
+                if model.isSamplingTrend { Button("停止采样") { model.stopTrend() } }
+                else { Button("开始采样") { model.startTrend() } }
+            }
+            Text("每 2 秒采样，最多 60 点；操作速率来自累计计数差分。缺项、重启或计数回退会断开曲线。")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+            if !model.trend.points.isEmpty {
+                HStack(spacing: 24) {
+                    VStack(alignment: .leading) {
+                        Text("命令 / 秒").font(.caption)
+                        Chart(model.trend.points) { point in
+                            if let rate = point.operationsPerSecond {
+                                LineMark(x: .value("时间", point.date), y: .value("速率", rate), series: .value("间隔", point.segment)).foregroundStyle(.green)
+                            }
+                        }.frame(height: 85).chartXAxis(.hidden).chartLegend(.hidden)
+                    }
+                    VStack(alignment: .leading) {
+                        Text("已用内存 · MiB").font(.caption)
+                        Chart(model.trend.points) { point in
+                            if let bytes = point.memoryBytes {
+                                LineMark(x: .value("时间", point.date), y: .value("内存", Double(bytes) / 1_048_576), series: .value("间隔", point.segment)).foregroundStyle(.blue)
+                            }
+                        }.frame(height: 85).chartXAxis(.hidden).chartLegend(.hidden)
+                    }
+                }
+            }
+        }.padding(17).background(RillTheme.panel.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+    }
+    private var memoryPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("按需内存分析").font(.headline)
+                Spacer()
+                if model.isAnalyzingMemory { Button("停止分析") { model.stopMemoryAnalysis() } }
+                else { Button("分析当前 DB") { model.startMemoryAnalysis() } }
+            }
+            Text("最多 8 次 SCAN、1,000 个键、5 秒请求边界预算；每批最多 64 个 MEMORY USAGE。顺序扫描样本，不是随机样本或全库排名。")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+            if let report = model.memoryAnalysis {
+                Text("\(report.state) · 已查 \(report.inspected) 键 · 可用 \(report.available) / 未知 \(report.unavailable) · SCAN \(report.scanRequests) 次")
+                    .font(.system(size: 11)).foregroundStyle(report.completeScan ? Color.secondary : Color.orange)
+                Text("采集于 \(report.startedAt.formatted(date: .omitted, time: .standard)) — \(report.updatedAt.formatted(date: .omitted, time: .standard))；MEMORY USAGE 是估计值。")
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                if !report.largerKeys.isEmpty {
+                    Text("本次范围内较大的键").font(.system(size: 11, weight: .medium))
+                    ForEach(report.largerKeys) { key in
+                        HStack { Text(DataPresentation.previewKey(key.bytes)).lineLimit(1).textSelection(.enabled); Spacer(); Text(byteCount(key.memory ?? 0)) }
+                            .font(.system(size: 11, design: .monospaced))
+                    }
+                }
+            }
+        }.padding(17).background(RillTheme.panel.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
     private var hitRate: String {
         guard let hits = Double(info["keyspace_hits"] ?? ""), let misses = Double(info["keyspace_misses"] ?? ""), hits + misses > 0 else { return "—" }
@@ -169,7 +229,13 @@ struct SlowlogView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("把时间花在该优化的地方。").font(.system(size: 20, weight: .semibold))
-                    Text("最近 50 条 SLOWLOG。耗时仅指服务端执行时间，不包含网络往返。").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("最近 50 条 SLOWLOG；耗时为服务端微秒换算为毫秒，不包含网络往返。").font(.system(size: 11)).foregroundStyle(.secondary)
+                    if let report = model.slowlogReport {
+                        Text(report.thresholdLabel + " · 当前记录 " + (report.length.map(String.init) ?? "未知") + " / 容量 " + (report.maximumLength.map(String.init) ?? "未知"))
+                            .font(.system(size: 11)).foregroundStyle(.secondary).help(report.settingsError ?? "只读取固定的慢查询配置项")
+                        Text("读取于 \(report.fetchedAt.formatted(date: .omitted, time: .standard))；空记录不表示服务器从未慢过。")
+                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    }
                 }
                 Spacer()
                 if model.diagnosticsLoading { ProgressView().controlSize(.small) }
@@ -179,7 +245,7 @@ struct SlowlogView: View {
                 EmptyState(symbol: "clock.badge.checkmark", title: "暂无慢查询记录", message: "当前 SLOWLOG 为空。是否记录取决于服务器设置的阈值。") { Button("刷新") { model.loadSlowQueries() }.disabled(model.diagnosticsLoading) }
             } else {
                 Table(model.slowQueries) {
-                    TableColumn("时间") { item in Text(item.date.formatted(date: .omitted, time: .standard)).font(RillTheme.mono) }.width(90)
+                    TableColumn("时间") { item in Text(item.date.formatted(date: .omitted, time: .standard)).font(RillTheme.mono).help(item.date.formatted(date: .complete, time: .standard)) }.width(90)
                     TableColumn("耗时") { item in Text(String(format: "%.3f ms", Double(item.microseconds) / 1000)).font(RillTheme.mono).foregroundStyle(item.microseconds >= 10000 ? .orange : .primary) }.width(95)
                     TableColumn("命令") { item in Text(item.command).font(RillTheme.mono).lineLimit(3).textSelection(.enabled) }
                     TableColumn("客户端") { item in Text(item.client).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary) }.width(130)

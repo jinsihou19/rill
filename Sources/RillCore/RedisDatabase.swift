@@ -194,6 +194,23 @@ public final class RedisDatabase: @unchecked Sendable {
         }
     }
 
+    public func slowlogReport() async throws -> SlowlogReport {
+        var report = SlowlogReport(queries: try await slowQueries())
+        do { report.length = try await observed(["SLOWLOG", "LEN"], feature: "SLOWLOG LEN").checked().number }
+        catch let error as RedisError { if case .server = error { report.settingsError = error.localizedDescription } else { throw error } }
+        for parameter in ["slowlog-log-slower-than", "slowlog-max-len"] {
+            do {
+                let result = try await observed(["CONFIG", "GET", parameter], feature: "CONFIG GET " + parameter).checked().elements
+                let number = result?.count == 2 ? result?[1].number : nil
+                if parameter == "slowlog-log-slower-than" { report.thresholdMicroseconds = number }
+                else { report.maximumLength = number }
+            } catch let error as RedisError {
+                if case .server = error { report.settingsError = error.localizedDescription } else { throw error }
+            }
+        }
+        return report
+    }
+
     private func writable() throws {
         guard !profile.readOnly else { throw RedisError.message("当前连接为只读，请在连接设置中开启写入。") }
     }

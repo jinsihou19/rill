@@ -116,6 +116,32 @@ final class RedisIntegrationTests: XCTestCase {
         }
     }
 
+    func testSlowlogSettingsUnitsAndRestrictedConfigFallback() async throws {
+        _ = try await db.wire.execute(["CONFIG", "SET", "slowlog-log-slower-than", "0"])
+        _ = try await db.wire.execute(["PING"])
+        let report = try await db.slowlogReport()
+        XCTAssertEqual(report.thresholdMicroseconds, 0); XCTAssertNotNil(report.maximumLength)
+        XCTAssertTrue(report.queries.contains { $0.command == "PING" }); XCTAssertTrue(report.queries.allSatisfy { $0.microseconds >= 0 && abs($0.date.timeIntervalSinceNow) < 120 })
+        _ = try await db.wire.execute(["ACL", "SETUSER", "slow-reader", "on", ">test", "~*", "+ping", "+slowlog|get", "+slowlog|len"])
+        let limited = try await RedisDatabase.connect(ConnectionProfile(port: server.port, username: "slow-reader", readOnly: true), password: "test")
+        defer { limited.close() }
+        let restricted = try await limited.slowlogReport()
+        XCTAssertNil(restricted.thresholdMicroseconds); XCTAssertNil(restricted.maximumLength); XCTAssertTrue(restricted.settingsError?.contains("NOPERM") == true)
+        XCTAssertFalse(restricted.queries.isEmpty)
+        let states = await limited.capabilities.snapshot()
+        XCTAssertEqual(states.first { $0.id == "CONFIG GET slowlog-log-slower-than" }?.status, .denied)
+        XCTAssertThrowsError(try CommandPolicy.validate(["CONFIG", "SET", "slowlog-log-slower-than", "0"], readOnly: false))
+    }
+    func testBoundedReadOnlyMemoryAnalysisMatchesOwnedDatasetAndBrowserContinues() async throws {
+        _ = try await db.wire.pipeline((0..<128).map { [data("SET"), data("memory:\($0)"), Data(repeating: 65, count: 100)] })
+        _ = try await db.wire.execute([data("SET"), data("large-memory"), Data(repeating: 66, count: 2 * 1024 * 1024)])
+        let analysis = try await server.connect(readOnly: true); defer { analysis.close() }
+        let result = try await MemoryAnalysis.run(fetch: { cursor in try await analysis.scan(cursor: cursor, pattern: "*", includeMetadata: false) }, metadata: { try await analysis.metadata(for: $0, includeTTL: false, includeMemory: true, includeType: false) })
+        XCTAssertTrue(result.completeScan); XCTAssertEqual(result.inspected, 129); XCTAssertEqual(result.available, 129); XCTAssertEqual(result.unavailable, 0)
+        XCTAssertEqual(result.largerKeys.first?.bytes, data("large-memory")); XCTAssertGreaterThan(result.largerKeys.first?.memory ?? 0, 2 * 1024 * 1024)
+        let ping = try await db.wire.execute(["PING"]); XCTAssertEqual(ping.string, "PONG")
+    }
+
     func testExactLookupInLargeKeyspaceNeverScans() async throws {
         let commands = (0..<100).map { batch -> [Data] in
             [data("MSET")] + (0..<1000).flatMap { [data("large:\(batch * 1000 + $0)"), data("v")] }

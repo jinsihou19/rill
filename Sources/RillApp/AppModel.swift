@@ -93,6 +93,17 @@ final class AppModel: ObservableObject {
     @Published var capabilityStates: [RedisCapability] = []
     @Published var serverInfo: [String: String] = [:]
     @Published var slowQueries: [SlowQuery] = []
+    @Published var slowlogReport: SlowlogReport?
+    @Published var trend = InfoTrend()
+    @Published var isSamplingTrend = false
+    @Published var memoryAnalysis: MemoryAnalysisReport?
+    @Published var isAnalyzingMemory = false
+    private var trendTask: Task<Void, Never>?
+    private var analysisTask: Task<Void, Never>?
+    private var trendDatabase: RedisDatabase?
+    private var analysisDatabase: RedisDatabase?
+    private var trendRevision = UUID()
+    private var analysisRevision = UUID()
     @Published var savedSearches: [SavedKeySearch] = []
     @Published var historySearch = ""
     @Published var consoleHistory = CommandHistory()
@@ -213,6 +224,7 @@ final class AppModel: ObservableObject {
     }
     func disconnect() { guardDraft { [weak self] in self?.reset(); self?.activeProfile = nil } }
     private func reset() {
+        stopDiagnostics(); trend = InfoTrend(); memoryAnalysis = nil; slowlogReport = nil
         generation = UUID(); detailGeneration = UUID(); keyGeneration = UUID(); scanSession = nil; memberSession = nil; isStoppingMembers = false
         memberQuery = MemberQuery(); memberPattern = ""; streamNewestFirst = true; streamStart = "-"; streamEnd = "+"
         namespaceBuild?.cancel(); namespaceGeneration = UUID(); namespaceTree = KeyNamespaceTree.build([]); isBuildingNamespaces = false
@@ -230,6 +242,7 @@ final class AppModel: ObservableObject {
         profile.database = number; connect(profile)
     }
     func switchTab(_ new: WorkspaceTab) {
+        if new != .overview { stopDiagnostics() }
         tab = new
         if new == .overview { loadDiagnostics() }
         if new == .slowlog { loadSlowQueries() }
@@ -717,10 +730,62 @@ final class AppModel: ObservableObject {
         guard let db = database, !diagnosticsLoading else { return }
         let token = generation; diagnosticsLoading = true
         Task {
-            do { let result = try await db.slowQueries(); if token == generation { slowQueries = result; diagnosticsLoading = false } }
+            do { let result = try await db.slowlogReport(); if token == generation { slowlogReport = result; slowQueries = result.queries; capabilityStates = await db.capabilities.snapshot(); diagnosticsLoading = false } }
             catch { if token == generation { diagnosticsLoading = false; presentError(error) } }
         }
     }
+    func startTrend() {
+        guard let profile = activeProfile, connected, tab == .overview, !isSamplingTrend else { return }
+        trendRevision = UUID(); let revision = trendRevision, token = generation
+        isSamplingTrend = true; trend = InfoTrend()
+        trendTask = Task {
+            var db: RedisDatabase?
+            defer { db?.close(); if revision == trendRevision { trendDatabase = nil; isSamplingTrend = false } }
+            do {
+                let secret = profile.id == demoID ? "" : try keychain.password(for: profile.id)
+                db = try await RedisDatabase.connect(profile, password: secret, timeout: 5)
+                guard revision == trendRevision, token == generation, !Task.isCancelled else { return }
+                trendDatabase = db
+                while !Task.isCancelled {
+                    let info = try await db!.info()
+                    guard revision == trendRevision, token == generation, tab == .overview else { return }
+                    serverInfo = info; trend.append(info, monotonicSeconds: ProcessInfo.processInfo.systemUptime)
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+            } catch { if !Task.isCancelled, revision == trendRevision { presentError(error) } }
+        }
+    }
+    func stopTrend() {
+        trendRevision = UUID(); trendTask?.cancel(); trendTask = nil; trendDatabase?.close(); trendDatabase = nil; isSamplingTrend = false
+    }
+    func startMemoryAnalysis() {
+        guard let profile = activeProfile, connected, tab == .overview, !isAnalyzingMemory else { return }
+        analysisRevision = UUID(); let revision = analysisRevision, token = generation
+        isAnalyzingMemory = true; memoryAnalysis = MemoryAnalysisReport()
+        analysisTask = Task {
+            var db: RedisDatabase?
+            defer { db?.close(); if revision == analysisRevision { analysisDatabase = nil; isAnalyzingMemory = false } }
+            do {
+                let secret = profile.id == demoID ? "" : try keychain.password(for: profile.id)
+                let database = try await RedisDatabase.connect(profile, password: secret, timeout: 5); db = database
+                guard revision == analysisRevision, token == generation, !Task.isCancelled else { return }
+                analysisDatabase = database
+                _ = try await MemoryAnalysis.run(fetch: { cursor in try await database.scan(cursor: cursor, pattern: "*", includeMetadata: false) },
+                                                metadata: { keys in try await database.metadata(for: keys, includeTTL: false, includeMemory: true, includeType: false) },
+                                                update: { [weak self] report in await self?.receiveMemoryAnalysis(report, revision: revision, token: token) })
+            } catch {
+                if !Task.isCancelled, revision == analysisRevision { memoryAnalysis?.state = "读取失败，结果不完整"; presentError(error) }
+            }
+        }
+    }
+    private func receiveMemoryAnalysis(_ report: MemoryAnalysisReport, revision: UUID, token: UUID) {
+        if revision == analysisRevision, token == generation { memoryAnalysis = report }
+    }
+    func stopMemoryAnalysis() {
+        if isAnalyzingMemory { memoryAnalysis?.state = "已停止，结果不完整" }
+        analysisRevision = UUID(); analysisTask?.cancel(); analysisTask = nil; analysisDatabase?.close(); analysisDatabase = nil; isAnalyzingMemory = false
+    }
+    func stopDiagnostics() { stopTrend(); stopMemoryAnalysis() }
     func exportCurrentPage() {
         guard let page = detail else { return }
         let panel = NSSavePanel(); panel.nameFieldStringValue = "redis-value." + (page.content == nil ? "json" : "txt")
