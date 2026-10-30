@@ -151,18 +151,18 @@ struct WorkspaceView: View {
                 VStack(spacing: 10) {
                     Picker("查找方式", selection: $model.searchMode) {
                         ForEach(KeySearchMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                    }.pickerStyle(.segmented).disabled(model.busy).accessibilityIdentifier("keySearchMode")
+                    }.pickerStyle(.segmented).disabled(!model.canSearch).accessibilityIdentifier("keySearchMode")
                     HStack(spacing: 7) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                         TextField(model.searchMode == .pattern ? "Redis glob，如 user:*" : model.searchMode == .hex ? "原始字节，如 00 FF 3A" : "完整键名，按字面查找", text: $model.search).textFieldStyle(.plain).font(.system(size: 12))
-                            .focused($searchFocused).onSubmit { if !model.busy { model.loadKeys(reset: true, preserveSelection: false) } }.disabled(model.isLoadingKeys).accessibilityIdentifier("keySearch")
-                        if !model.search.isEmpty { Button { model.search = ""; model.loadKeys(reset: true, preserveSelection: false) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain).disabled(model.busy) }
+                            .focused($searchFocused).onSubmit { model.loadKeys(reset: true, preserveSelection: false) }.disabled(!model.canSearch).accessibilityIdentifier("keySearch")
+                        if !model.search.isEmpty { Button { model.search = ""; model.loadKeys(reset: true, preserveSelection: false) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain).disabled(!model.canSearch) }
                     }.padding(8).background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 7))
                     HStack {
                         Picker("数据类型", selection: $model.typeFilter) {
                             Text("所有类型").tag("")
                             ForEach(KeyKind.editable, id: \.self) { Text($0.title).tag($0.rawValue) }
-                        }.labelsHidden().frame(maxWidth: 120).onChange(of: model.typeFilter) { _, _ in model.loadKeys(reset: true, preserveSelection: false) }.disabled(model.busy)
+                        }.labelsHidden().frame(maxWidth: 120).onChange(of: model.typeFilter) { _, _ in model.loadKeys(reset: true, preserveSelection: false) }.disabled(!model.canSearch)
                         Spacer(minLength: 1)
                         Button { model.favoritesOnly.toggle() } label: { Image(systemName: model.favoritesOnly ? "star.fill" : "star") }.help("仅显示已加载键中的收藏").foregroundStyle(model.favoritesOnly ? .orange : .secondary)
                         if !model.favoriteKeyBytes.isEmpty {
@@ -181,9 +181,14 @@ struct WorkspaceView: View {
                 HStack {
                     Text("已加载 \(model.keys.count)").font(.system(size: 10)).foregroundStyle(.secondary)
                     Spacer()
-                    if model.isLoadingKeys { ProgressView().controlSize(.small) }
+                    if model.isLoadingKeys {
+                        ProgressView().controlSize(.small)
+                        if model.isPatternSearch { Button("停止") { model.stopKeyScan() }.font(.system(size: 11)).keyboardShortcut(.cancelAction).help("停止续扫 · Esc") }
+                    }
+                    else if model.isStoppingScan { Text("等待本次响应…").font(.system(size: 10)).foregroundStyle(.secondary) }
                     else if !model.scanFinished { Button("加载更多") { model.loadKeys(reset: false) }.font(.system(size: 11)).disabled(model.busy) }
-                    else { Image(systemName: "checkmark.circle").font(.caption).foregroundStyle(.secondary).help(model.searchMode == .pattern ? "本轮扫描完成，非一致性快照" : "精确查找已完成") }
+                    else if model.scanState == .capacity { Image(systemName: "exclamationmark.circle").foregroundStyle(.orange).help("达到 10 万键或 16 MiB 键名容量上限，请缩小搜索范围。") }
+                    else { Image(systemName: "checkmark.circle").font(.caption).foregroundStyle(.secondary).help(model.isPatternSearch ? "本轮扫描完成，非一致性快照" : "精确查找已完成") }
                 }.padding(.horizontal, 14).frame(height: 38)
             }.frame(minWidth: 260, idealWidth: 302, maxWidth: 340)
             KeyDetailView().frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
@@ -196,7 +201,7 @@ struct WorkspaceView: View {
                 VStack(spacing: 12) {
                     Image(systemName: model.favoritesOnly ? "star" : "tray").font(.title2).foregroundStyle(.tertiary)
                     Text(model.favoritesOnly ? "已加载的键中暂无收藏" : "暂无匹配的键").font(.caption).foregroundStyle(.secondary)
-                    if !model.scanFinished { Button("继续扫描") { model.loadKeys(reset: false) }.disabled(model.busy) }
+                    if !model.scanFinished { Text(model.isStoppingScan ? "正在停止；等待本次响应" : "扫描尚未结束，可继续查找").font(.caption2).foregroundStyle(.secondary); Button("继续扫描") { model.loadKeys(reset: false) }.disabled(model.busy) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(selection: Binding(get: { model.selectedKeyID }, set: { id in DispatchQueue.main.async { model.selectKey(id) } })) {

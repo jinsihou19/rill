@@ -47,6 +47,8 @@ final class AppModel: ObservableObject {
     @Published var tab: WorkspaceTab = .browser
     @Published var isConnecting = false
     @Published var isLoadingKeys = false
+    @Published var isStoppingScan = false
+    @Published var scanState: ScanStopReason = .budget
     @Published var isLoadingDetail = false
     @Published var isWriting = false
     @Published var isConsoleRunning = false
@@ -60,7 +62,6 @@ final class AppModel: ObservableObject {
     @Published var typeFilter = ""
     @Published var grouped = true
     @Published var favoritesOnly = false
-    @Published var cursor = "0"
     @Published var scanFinished = false
     @Published var totalKeys: Int64 = 0
     @Published var serverInfo: [String: String] = [:]
@@ -79,6 +80,9 @@ final class AppModel: ObservableObject {
     private let keychain = KeychainStore()
     private var generation = UUID()
     private var detailGeneration = UUID()
+    private var keyGeneration = UUID()
+    private var scanSession: KeyScanSession?
+    private var scanQuery = (mode: KeySearchMode.pattern, text: "", kind: "")
     private var connectTask: Task<Void, Never>?
     private var scanTask: Task<Void, Never>?
     private var detailTask: Task<Void, Never>?
@@ -89,7 +93,9 @@ final class AppModel: ObservableObject {
     private var afterConfirmation: (() -> Void)?
 
     var connected: Bool { database != nil && !connectionLost }
-    var busy: Bool { isConnecting || isLoadingKeys || isLoadingDetail || isWriting || isConsoleRunning || diagnosticsLoading }
+    var busy: Bool { isConnecting || isLoadingKeys || isStoppingScan || isLoadingDetail || isWriting || isConsoleRunning || diagnosticsLoading }
+    var canSearch: Bool { connected && !isConnecting && !isWriting && !isConsoleRunning }
+    var isPatternSearch: Bool { scanQuery.mode == .pattern }
     var canWrite: Bool { connected && activeProfile?.readOnly == false && !busy }
     var latency: Double { database?.latency ?? 0 }
     var dirty: Bool {
@@ -160,12 +166,12 @@ final class AppModel: ObservableObject {
     }
     func disconnect() { guardDraft { [weak self] in self?.reset(); self?.activeProfile = nil } }
     private func reset() {
-        generation = UUID(); detailGeneration = UUID()
+        generation = UUID(); detailGeneration = UUID(); keyGeneration = UUID(); scanSession = nil
         connectTask?.cancel(); scanTask?.cancel(); detailTask?.cancel(); database?.close(); database = nil
-        keys = []; selectedKeyID = nil; detail = nil; draft = ""; cursor = "0"; scanFinished = false; totalKeys = 0
+        keys = []; selectedKeyID = nil; detail = nil; draft = ""; scanFinished = false; totalKeys = 0
         serverInfo = [:]; slowQueries = []; consoleEntries = []; consoleInput = ""
         connectionLost = false
-        isConnecting = false; isLoadingKeys = false; isLoadingDetail = false; isWriting = false; diagnosticsLoading = false; isConsoleRunning = false
+        isConnecting = false; isLoadingKeys = false; isStoppingScan = false; isLoadingDetail = false; isWriting = false; diagnosticsLoading = false; isConsoleRunning = false
     }
     func changeDatabase(_ number: Int) {
         guard var profile = activeProfile, number != profile.database, !busy else { return }
@@ -178,37 +184,43 @@ final class AppModel: ObservableObject {
     }
 
     func loadKeys(reset: Bool, preserveSelection: Bool = true, focusKey: Data? = nil) {
-        guard let db = database, !isLoadingKeys, !isWriting else { return }
+        guard let db = database, canSearch else { return }
         if reset && dirty { guardDraft { [weak self] in self?.loadKeys(reset: true, preserveSelection: preserveSelection, focusKey: focusKey) }; return }
-        if !reset && scanFinished { return }
+        if !reset && (scanFinished || isLoadingKeys || isStoppingScan) { return }
         let previousKey = focusKey ?? (preserveSelection ? detail?.key.bytes ?? keys.first(where: { $0.id == selectedKeyID })?.bytes : nil)
         if reset && !preserveSelection { detailGeneration = UUID(); selectedKeyID = nil; detail = nil; draft = "" }
-        if reset { keys = []; cursor = "0"; scanFinished = false }
-        let token = generation, pattern = search.isEmpty ? "*" : search, kind = typeFilter
-        let mode = searchMode, query = search
-        isLoadingKeys = true; error = nil
+        if reset {
+            if let old = scanSession { Task { await old.pause() } }
+            keyGeneration = UUID(); keys = []; scanFinished = false; scanState = .budget
+            scanSession = KeyScanSession()
+            scanQuery = (searchMode, search, typeFilter)
+        }
+        let token = generation, pattern = scanQuery.text.isEmpty ? "*" : scanQuery.text, kind = scanQuery.kind
+        let mode = scanQuery.mode, query = scanQuery.text, keyToken = keyGeneration
+        let session = scanSession ?? KeyScanSession(); scanSession = session
+        isLoadingKeys = true; isStoppingScan = false; error = nil
         scanTask = Task {
             do {
-                var next = cursor, additions: [RedisKey] = [], attempts = 0
+                var additions: [RedisKey] = [], reason: ScanStopReason = .complete
                 if let exact = try mode.exactKey(query) {
                     if let key = try await db.lookup(exact, kind: kind) { additions = [key] }
-                    next = "0"
                 } else {
-                    repeat {
-                        let page = try await db.scan(cursor: next, pattern: pattern, kind: kind)
-                        next = page.cursor; additions.append(contentsOf: page.keys); attempts += 1
-                    } while next != "0" && additions.isEmpty && attempts < 8 && !Task.isCancelled
+                    let batch = try await session.nextPage { cursor in try await db.scan(cursor: cursor, pattern: pattern, kind: kind) }
+                    additions = batch.keys; reason = batch.reason
                 }
-                let count = try await db.size()
+                guard token == generation, keyToken == keyGeneration else { return }
+                let count = reset ? (try? await db.size()) : nil
                 let selectedPage: KeyPage?
-                if reset, let previousKey, mode == .pattern || additions.contains(where: { $0.bytes == previousKey }) { selectedPage = try? await db.inspect(previousKey) }
+                if reset, reason != .paused, let previousKey, mode == .pattern || additions.contains(where: { $0.bytes == previousKey }) { selectedPage = try? await db.inspect(previousKey) }
                 else { selectedPage = nil }
-                guard token == generation, !Task.isCancelled else { return }
+                guard token == generation, keyToken == keyGeneration, !Task.isCancelled else { return }
                 var merged = Dictionary(keys.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
                 for key in additions { merged[key.id] = key }
                 if let selectedPage { merged[selectedPage.key.id] = selectedPage.key }
                 keys = merged.values.sorted { $0.bytes.lexicographicallyPrecedes($1.bytes) }
-                cursor = next; scanFinished = next == "0"; totalKeys = count; isLoadingKeys = false
+                scanState = reason; scanFinished = reason == .complete || reason == .capacity
+                if let count { totalKeys = count }
+                isLoadingKeys = false; isStoppingScan = false
                 if mode != .pattern, reset, !preserveSelection, let key = additions.first { startDetail(key.id); return }
                 if reset {
                     if let selectedPage {
@@ -218,10 +230,15 @@ final class AppModel: ObservableObject {
                     else { selectedKeyID = nil; detail = nil; draft = "" }
                 }
             } catch {
-                guard token == generation else { return }
-                isLoadingKeys = false; presentError(error)
+                guard token == generation, keyToken == keyGeneration else { return }
+                isLoadingKeys = false; isStoppingScan = false; presentError(error)
             }
         }
+    }
+    func stopKeyScan() {
+        guard isLoadingKeys, isPatternSearch, let session = scanSession else { return }
+        isLoadingKeys = false; isStoppingScan = true
+        Task { await session.pause() }
     }
     func selectKey(_ id: String?, force: Bool = false) {
         guard force || id != selectedKeyID else { return }

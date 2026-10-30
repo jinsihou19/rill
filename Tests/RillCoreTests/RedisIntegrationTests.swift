@@ -146,6 +146,24 @@ final class RedisIntegrationTests: XCTestCase {
         let size = try await isolated.size(); XCTAssertEqual(size, 0)
         let originalSize = try await db.size(); XCTAssertEqual(originalSize, 651)
     }
+    func testBoundedScanPauseAndResumeKeepsConnectionUsable() async throws {
+        _ = try await db.wire.pipeline((0..<650).map { [data("SET"), data("bounded:\($0)"), data("v")] })
+        let session = KeyScanSession(budget: ScanBudget(results: 100, requests: 2))
+        let database = db!
+        _ = try await db.wire.execute(["CLIENT", "PAUSE", "100", "ALL"])
+        let task = Task { try await session.nextPage { cursor in try await database.scan(cursor: cursor, pattern: "bounded:*") } }
+        try await Task.sleep(nanoseconds: 20_000_000); await session.pause()
+        let stopped = try await task.value; XCTAssertEqual(stopped.reason, .paused)
+        let ping = try await db.wire.execute(["PING"]); XCTAssertEqual(ping.string, "PONG")
+        var ids = Set<String>(), complete = false
+        for _ in 0..<20 {
+            let page = try await session.nextPage { cursor in try await database.scan(cursor: cursor, pattern: "bounded:*") }
+            XCTAssertLessThanOrEqual(page.keys.count, 100); XCTAssertLessThanOrEqual(page.requests, 2)
+            for key in page.keys { XCTAssertTrue(ids.insert(key.id).inserted) }
+            if page.reason == .complete { complete = true; break }
+        }
+        XCTAssertTrue(complete); XCTAssertEqual(ids.count, 650)
+    }
     func testListAndStreamPagination() async throws {
         _ = try await db.wire.execute(["RPUSH", "list"] + (0..<450).map(String.init))
         let first = try await db.inspect(data("list")); XCTAssertEqual(first.rows.count, 200); XCTAssertTrue(first.hasMore)
