@@ -54,6 +54,42 @@ final class RedisIntegrationTests: XCTestCase {
     override func tearDown() async throws { db?.close(); db = nil; server = nil }
     private func data(_ text: String) -> Data { Data(text.utf8) }
 
+    func testExactLookupInLargeKeyspaceNeverScans() async throws {
+        let commands = (0..<100).map { batch -> [Data] in
+            [data("MSET")] + (0..<1000).flatMap { [data("large:\(batch * 1000 + $0)"), data("v")] }
+        }
+        _ = try await db.wire.pipeline(commands)
+        let before = RedisDatabase.parseInfo(try await db.wire.execute(["INFO", "commandstats"]).string ?? "")
+        let found = try await db.lookup(data("large:99999"))
+        let missing = try await db.lookup(data("missing"))
+        let after = RedisDatabase.parseInfo(try await db.wire.execute(["INFO", "commandstats"]).string ?? "")
+        func calls(_ stats: [String: String], _ command: String) -> Int {
+            Int(stats["cmdstat_" + command]?.split(separator: ",").first?.dropFirst(6) ?? "0") ?? 0
+        }
+        XCTAssertEqual(found?.bytes, data("large:99999")); XCTAssertNil(missing)
+        XCTAssertEqual(calls(after, "scan"), calls(before, "scan"))
+        XCTAssertEqual(calls(after, "type") - calls(before, "type"), 2)
+        XCTAssertEqual(calls(after, "pttl") - calls(before, "pttl"), 2)
+    }
+
+    func testExactLookupLiteralBinaryMissingAndPermissionErrors() async throws {
+        let keys = ["a*b", "a?b", "a[b]", "a\\b", " 中文 key ", ""].map(data) + [Data([0, 255, 58, 42])]
+        for key in keys {
+            _ = try await db.wire.execute([data("SET"), key, data("v")])
+            let row = try await db.lookup(key)
+            XCTAssertEqual(row?.bytes, key); XCTAssertEqual(row?.kind, .string)
+            let mismatch = try await db.lookup(key, kind: "hash"); XCTAssertNil(mismatch)
+        }
+        _ = try await db.wire.execute(["ACL", "SETUSER", "no-type", "on", ">test", "~*", "+ping", "+pttl", "+info"])
+        let restricted = try await RedisDatabase.connect(ConnectionProfile(port: server.port, username: "no-type"), password: "test")
+        defer { restricted.close() }
+        do { _ = try await restricted.lookup(data("a*b")); XCTFail("Permission error must not look like a missing key") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("NOPERM")) }
+        let ping = try await restricted.wire.execute(["PING"]); XCTAssertEqual(ping.string, "PONG")
+        _ = try await db.wire.execute([data("DEL"), keys[0]])
+        let removed = try await db.lookup(keys[0]); XCTAssertNil(removed)
+    }
+
     func testStringConflictPreservesTTLAndBinary() async throws {
         let key = data("rill:中文🔑"), original = Data([0, 255, 10, 13])
         try await db.create(key: key, kind: .string, field: Data(), value: original, ttl: 120)

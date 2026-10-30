@@ -2,6 +2,15 @@ import XCTest
 @testable import RillCore
 
 final class ProtocolTests: XCTestCase {
+    func testExactSearchInputPreservesLiteralAndBinaryKeys() throws {
+        let literal = "  中文:a*b?[x]\\n  "
+        XCTAssertEqual(try KeySearchMode.exact.exactKey(literal), Data(literal.utf8))
+        XCTAssertEqual(try KeySearchMode.hex.exactKey("0x00 FF 3a\n5C"), Data([0, 255, 58, 92]))
+        XCTAssertEqual(try KeySearchMode.hex.exactKey(""), Data())
+        XCTAssertNil(try KeySearchMode.pattern.exactKey("user:*"))
+        for input in ["F", "00 ZZ", "0x123", "GG"] { XCTAssertThrowsError(try KeySearchMode.hex.exactKey(input)) }
+        XCTAssertEqual(RedisGlob.escapedPrefix(Data("a*b?[x]\\".utf8)), Data("a\\*b\\?\\[x\\]\\\\*".utf8))
+    }
     func testBinaryRoundTripAndByteLengths() throws {
         let arguments = [Data("SET".utf8), Data("中文🔑".utf8), Data([0, 255, 13, 10, 42])]
         let encoded = RESPCodec.encode(arguments)

@@ -52,6 +52,42 @@ public enum KeyKind: String, CaseIterable, Sendable {
     public static var editable: [Self] { allCases.filter { $0 != .unknown } }
 }
 
+public enum KeySearchMode: String, CaseIterable, Codable, Sendable {
+    case pattern, exact, hex
+    public var title: String {
+        switch self { case .pattern: return "模式"; case .exact: return "精确键"; case .hex: return "Hex 键" }
+    }
+    public func exactKey(_ input: String) throws -> Data? {
+        switch self {
+        case .pattern: return nil
+        case .exact: return Data(input.utf8)
+        case .hex:
+            var text = input.filter { !$0.isWhitespace }
+            if text.lowercased().hasPrefix("0x") { text.removeFirst(2) }
+            let chars = Array(text)
+            guard chars.count.isMultiple(of: 2) else { throw RedisError.message("Hex 键必须由完整的字节组成，例如 00 FF 3A。") }
+            var bytes = Data()
+            for i in stride(from: 0, to: chars.count, by: 2) {
+                guard let byte = UInt8(String(chars[i...i + 1]), radix: 16) else { throw RedisError.message("Hex 键只能包含十六进制数字和空白。") }
+                bytes.append(byte)
+            }
+            return bytes
+        }
+    }
+}
+
+public enum RedisGlob {
+    public static func escapedPrefix(_ bytes: Data) -> Data {
+        var result = Data()
+        for byte in bytes {
+            if [UInt8(42), 63, 91, 93, 92].contains(byte) { result.append(92) }
+            result.append(byte)
+        }
+        result.append(42)
+        return result
+    }
+}
+
 public struct RedisKey: Identifiable, Equatable, Sendable {
     public let bytes: Data
     public let kind: KeyKind

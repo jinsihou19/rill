@@ -30,6 +30,15 @@ public final class RedisDatabase: @unchecked Sendable {
     }
     public func close() { wire.close() }
 
+    public func lookup(_ key: Data, kind: String = "") async throws -> RedisKey? {
+        let replies = try await wire.pipeline([[Data("TYPE".utf8), key], [Data("PTTL".utf8), key]])
+        let type = try replies[0].checked().string ?? "none"
+        guard type != "none", kind.isEmpty || type == kind else { return nil }
+        let ttl = try replies[1].checked().number ?? -2
+        guard ttl != -2 else { return nil }
+        return RedisKey(bytes: key, kind: KeyKind(rawValue: type) ?? .unknown, ttl: ttl)
+    }
+
     public func scan(cursor: String, pattern: String, kind: String = "") async throws -> ScanPage {
         var args = ["SCAN", cursor, "MATCH", pattern.isEmpty ? "*" : pattern, "COUNT", String(Self.pageSize)]
         if !kind.isEmpty { args += ["TYPE", kind] }

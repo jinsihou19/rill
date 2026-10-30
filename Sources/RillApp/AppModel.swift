@@ -56,6 +56,7 @@ final class AppModel: ObservableObject {
     @Published var draft = ""
     @Published var valueFormat = "文本"
     @Published var search = ""
+    @Published var searchMode: KeySearchMode = .pattern
     @Published var typeFilter = ""
     @Published var grouped = true
     @Published var favoritesOnly = false
@@ -184,17 +185,23 @@ final class AppModel: ObservableObject {
         if reset && !preserveSelection { detailGeneration = UUID(); selectedKeyID = nil; detail = nil; draft = "" }
         if reset { keys = []; cursor = "0"; scanFinished = false }
         let token = generation, pattern = search.isEmpty ? "*" : search, kind = typeFilter
+        let mode = searchMode, query = search
         isLoadingKeys = true; error = nil
         scanTask = Task {
             do {
                 var next = cursor, additions: [RedisKey] = [], attempts = 0
-                repeat {
-                    let page = try await db.scan(cursor: next, pattern: pattern, kind: kind)
-                    next = page.cursor; additions.append(contentsOf: page.keys); attempts += 1
-                } while next != "0" && additions.isEmpty && attempts < 8 && !Task.isCancelled
+                if let exact = try mode.exactKey(query) {
+                    if let key = try await db.lookup(exact, kind: kind) { additions = [key] }
+                    next = "0"
+                } else {
+                    repeat {
+                        let page = try await db.scan(cursor: next, pattern: pattern, kind: kind)
+                        next = page.cursor; additions.append(contentsOf: page.keys); attempts += 1
+                    } while next != "0" && additions.isEmpty && attempts < 8 && !Task.isCancelled
+                }
                 let count = try await db.size()
                 let selectedPage: KeyPage?
-                if reset, let previousKey { selectedPage = try? await db.inspect(previousKey) }
+                if reset, let previousKey, mode == .pattern || additions.contains(where: { $0.bytes == previousKey }) { selectedPage = try? await db.inspect(previousKey) }
                 else { selectedPage = nil }
                 guard token == generation, !Task.isCancelled else { return }
                 var merged = Dictionary(keys.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
@@ -202,6 +209,7 @@ final class AppModel: ObservableObject {
                 if let selectedPage { merged[selectedPage.key.id] = selectedPage.key }
                 keys = merged.values.sorted { $0.bytes.lexicographicallyPrecedes($1.bytes) }
                 cursor = next; scanFinished = next == "0"; totalKeys = count; isLoadingKeys = false
+                if mode != .pattern, reset, !preserveSelection, let key = additions.first { startDetail(key.id); return }
                 if reset {
                     if let selectedPage {
                         detail = selectedPage; selectedKeyID = selectedPage.key.id
@@ -350,6 +358,19 @@ final class AppModel: ObservableObject {
     }
     private func favoriteID(_ keyID: String) -> String {
         "\(activeProfile?.id.uuidString ?? "")/\(activeProfile?.database ?? 0)/\(keyID)"
+    }
+    var favoriteKeyBytes: [Data] {
+        let prefix = "\(activeProfile?.id.uuidString ?? "")/\(activeProfile?.database ?? 0)/"
+        return favorites.filter { $0.hasPrefix(prefix) }.compactMap { Data(base64Encoded: String($0.dropFirst(prefix.count))) }
+            .sorted { $0.lexicographicallyPrecedes($1) }
+    }
+    func openFavorite(_ bytes: Data) {
+        guardDraft { [weak self] in
+            guard let self else { return }
+            self.favoritesOnly = false; self.searchMode = .hex
+            self.search = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
+            self.loadKeys(reset: true, preserveSelection: false)
+        }
     }
     func isFavorite(_ key: RedisKey) -> Bool { favorites.contains(favoriteID(key.id)) }
     func toggleFavorite(_ key: RedisKey) {
