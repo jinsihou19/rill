@@ -59,3 +59,22 @@ struct ProfileStore {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 }
+
+struct BrowserPreferences: Codable, Equatable {
+    var separator = ":"
+    var grouped = true
+    var expansion: [String: Bool] = [:]
+}
+
+struct BrowserPreferencesStore {
+    var defaults = UserDefaults.standard
+    private func key(_ profile: ConnectionProfile) -> String { "browser.\(profile.id.uuidString).db\(profile.database)" }
+    func load(_ profile: ConnectionProfile) -> BrowserPreferences {
+        guard let data = defaults.data(forKey: key(profile)), let value = try? JSONDecoder().decode(BrowserPreferences.self, from: data),
+              !value.separator.isEmpty, value.separator.utf8.count <= 16 else { return BrowserPreferences() }
+        return value
+    }
+    func save(_ value: BrowserPreferences, for profile: ConnectionProfile) {
+        if let data = try? JSONEncoder().encode(value) { defaults.set(data, forKey: key(profile)) }
+    }
+}

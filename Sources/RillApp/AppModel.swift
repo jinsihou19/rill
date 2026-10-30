@@ -63,6 +63,10 @@ final class AppModel: ObservableObject {
     @Published var searchMode: KeySearchMode = .pattern
     @Published var typeFilter = ""
     @Published var grouped = true
+    @Published var namespaceSeparator = ":"
+    @Published var namespaceExpansion: [String: Bool] = [:]
+    @Published var namespaceTree = KeyNamespaceTree.build([])
+    @Published var isBuildingNamespaces = false
     @Published var showKeyTypes = true
     @Published var showKeyTTL = true
     @Published var favoritesOnly = false
@@ -83,12 +87,15 @@ final class AppModel: ObservableObject {
     private(set) var database: RedisDatabase?
     private let store = ProfileStore()
     private let keychain = KeychainStore()
+    private let browserPreferences = BrowserPreferencesStore()
     private var generation = UUID()
     private var detailGeneration = UUID()
     private var keyGeneration = UUID()
     private var scanSession: KeyScanSession?
     private var scanQuery = (mode: KeySearchMode.pattern, text: "", kind: "")
     private var keyIndex: [String: Int] = [:]
+    private var namespaceBuild: Task<KeyNamespaceTree, Never>?
+    private var namespaceGeneration = UUID()
     private var visibleKeyObservers: [UUID: String] = [:]
     private var visibleKeyIDs: Set<String> { Set(visibleKeyObservers.values) }
     private var metadataDebounce: Task<Void, Never>?
@@ -155,6 +162,8 @@ final class AppModel: ObservableObject {
     }
     private func startConnection(_ profile: ConnectionProfile) {
         reset(); activeProfile = profile; isConnecting = true; error = nil
+        let preferences = browserPreferences.load(profile)
+        namespaceSeparator = preferences.separator; grouped = preferences.grouped; namespaceExpansion = preferences.expansion
         let token = generation
         connectTask = Task { [self] in
             do {
@@ -181,6 +190,7 @@ final class AppModel: ObservableObject {
     func disconnect() { guardDraft { [weak self] in self?.reset(); self?.activeProfile = nil } }
     private func reset() {
         generation = UUID(); detailGeneration = UUID(); keyGeneration = UUID(); scanSession = nil
+        namespaceBuild?.cancel(); namespaceGeneration = UUID(); namespaceTree = KeyNamespaceTree.build([]); isBuildingNamespaces = false
         let previousReset = consoleResetTask, session = consoleSession
         consoleResetTask = Task { await previousReset?.value; await session.close() }
         metadataDebounce?.cancel(); visibleKeyObservers = [:]; keyIndex = [:]; isReadingMetadata = false
@@ -209,6 +219,7 @@ final class AppModel: ObservableObject {
         if reset {
             if let old = scanSession { Task { await old.pause() } }
             keyGeneration = UUID(); keys = []; scanFinished = false; scanState = .budget
+            namespaceBuild?.cancel(); namespaceGeneration = UUID(); namespaceTree = KeyNamespaceTree.build([]); isBuildingNamespaces = false
             metadataDebounce?.cancel(); visibleKeyObservers = [:]; keyIndex = [:]; isReadingMetadata = false
             scanSession = KeyScanSession()
             scanQuery = (searchMode, search, typeFilter)
@@ -241,6 +252,7 @@ final class AppModel: ObservableObject {
                 if let selectedPage { merged[selectedPage.key.id] = selectedPage.key }
                 keys = merged.values.sorted { $0.bytes.lexicographicallyPrecedes($1.bytes) }
                 keyIndex = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($0.element.id, $0.offset) })
+                rebuildNamespaces()
                 scanState = reason; scanFinished = reason == .complete || reason == .capacity
                 if reset { totalKeys = count }
                 isLoadingKeys = false; isStoppingScan = false
@@ -313,11 +325,46 @@ final class AppModel: ObservableObject {
                 }
                 if !missing.isEmpty { updated.removeAll { missing.contains($0.id) }; visibleKeyObservers = visibleKeyObservers.filter { !missing.contains($0.value) } }
                 keys = updated; keyIndex = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($0.element.id, $0.offset) })
+                if !missing.isEmpty { rebuildNamespaces() }
                 capabilityStates = states; isReadingMetadata = false; requestVisibleMetadata()
             } catch {
                 guard token == generation, revision == keyGeneration else { return }
                 isReadingMetadata = false; presentError(error)
             }
+        }
+    }
+    func key(id: String) -> RedisKey? { keyIndex[id].map { keys[$0] } }
+    func rebuildNamespaces() {
+        namespaceBuild?.cancel(); namespaceGeneration = UUID()
+        guard grouped else { isBuildingNamespaces = false; return }
+        let revision = namespaceGeneration, bytes = visibleKeys.map(\.bytes), separator = Data(namespaceSeparator.utf8)
+        isBuildingNamespaces = true
+        let worker = Task.detached(priority: .userInitiated) { KeyNamespaceTree.build(bytes, separator: separator) }
+        namespaceBuild = worker
+        Task {
+            let tree = await worker.value
+            guard revision == namespaceGeneration, !worker.isCancelled else { return }
+            namespaceTree = tree; isBuildingNamespaces = false
+        }
+    }
+    func setNamespaceSeparator(_ separator: String) {
+        guard !separator.isEmpty, separator.utf8.count <= 16 else { error = "分隔符需为 1–16 个 UTF-8 字节，例如 :、/ 或 ::。"; return }
+        namespaceSeparator = separator; namespaceExpansion = [:]; saveBrowserPreferences(); rebuildNamespaces()
+    }
+    func isNamespaceExpanded(_ id: String, depth: Int) -> Bool { namespaceExpansion[id] ?? (depth == 0) }
+    func setNamespaceExpanded(_ id: String, expanded: Bool) {
+        namespaceExpansion[id] = expanded; saveBrowserPreferences()
+    }
+    func saveBrowserPreferences() {
+        guard let profile = activeProfile, profile.id != demoID else { return }
+        browserPreferences.save(BrowserPreferences(separator: namespaceSeparator, grouped: grouped, expansion: namespaceExpansion), for: profile)
+    }
+    func searchNamespace(_ node: KeyNamespaceNode) {
+        guard let pattern = String(data: RedisGlob.escapedPrefix(node.bytes), encoding: .utf8) else { return }
+        guardDraft { [weak self] in
+            guard let self else { return }
+            self.searchMode = .pattern; self.search = pattern; self.favoritesOnly = false
+            self.namespaceExpansion[node.id] = true; self.loadKeys(reset: true, preserveSelection: false)
         }
     }
     func selectKey(_ id: String?, force: Bool = false) {
@@ -476,6 +523,7 @@ final class AppModel: ObservableObject {
         let id = favoriteID(key.id)
         if favorites.contains(id) { favorites.remove(id) } else { favorites.insert(id) }
         UserDefaults.standard.set(Array(favorites), forKey: "favoriteKeys")
+        if favoritesOnly { rebuildNamespaces() }
     }
 
     func runConsole() {

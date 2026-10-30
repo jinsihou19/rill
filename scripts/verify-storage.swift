@@ -24,6 +24,15 @@ struct VerifyStorage {
         let updated = try keychain.password(for: id); precondition(updated == secret + "-updated")
         try keychain.set("", for: id)
         let removed = try keychain.password(for: id); precondition(removed == "")
-        print("PASS: profile round trip, 0600 permissions, no password in JSON; native Keychain create/read/update/delete.")
+        let suite = "rill-preferences-test-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let browser = BrowserPreferencesStore(defaults: defaults)
+        var preferences = BrowserPreferences(); preferences.separator = "::"; preferences.expansion["folder:test"] = false
+        browser.save(preferences, for: list[0]); precondition(browser.load(list[0]) == preferences)
+        var otherDB = list[0]; otherDB.database = 1
+        precondition(browser.load(otherDB) == BrowserPreferences())
+        precondition(browser.load(list[1]) == BrowserPreferences())
+        print("PASS: profile round trip, 0600 permissions, no password in JSON; native Keychain CRUD; browser preferences isolated by connection and DB.")
     }
 }

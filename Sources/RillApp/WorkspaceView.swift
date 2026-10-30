@@ -5,7 +5,9 @@ struct WorkspaceView: View {
     @EnvironmentObject private var model: AppModel
     @State private var visibility: NavigationSplitViewVisibility = .all
     @FocusState private var searchFocused: Bool
-    @State private var collapsedNamespaces: Set<String> = []
+    @State private var selectedTreeItem: String?
+    @State private var showSeparatorEditor = false
+    @State private var separatorDraft = ":"
 
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility) {
@@ -68,6 +70,13 @@ struct WorkspaceView: View {
         .sheet(item: $model.confirmation, onDismiss: model.confirmationDismissed) { request in ConfirmationView(request: request) }
         .onReceive(NotificationCenter.default.publisher(for: .rillFocusSearch)) { _ in model.switchTab(.browser); searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .rillRefresh)) { _ in if !model.busy { refresh() } }
+        .onChange(of: model.selectedKeyID) { _, _ in selectedTreeItem = nil }
+        .onChange(of: model.activeProfile) { _, _ in selectedTreeItem = nil }
+        .alert("命名空间分隔符", isPresented: $showSeparatorEditor) {
+            TextField("例如 :、/ 或 ::", text: $separatorDraft)
+            Button("应用") { model.setNamespaceSeparator(separatorDraft) }
+            Button("取消", role: .cancel) {}
+        } message: { Text("按字面字节分组；修改后会重置当前数据库的展开状态。") }
     }
 
     private var sidebar: some View {
@@ -173,12 +182,15 @@ struct WorkspaceView: View {
                             } label: { Image(systemName: "bookmark") }.menuIndicator(.hidden).help("直接打开当前数据库的收藏键").disabled(model.busy)
                         }
                         Button { model.grouped.toggle() } label: { Image(systemName: model.grouped ? "folder" : "list.bullet") }.help("切换前缀分组与列表")
+                            .contextMenu { Button("设置命名空间分隔符…") { separatorDraft = model.namespaceSeparator; showSeparatorEditor = true } }
                         Menu {
                             Toggle("显示类型", isOn: $model.showKeyTypes)
                             Toggle("显示 TTL", isOn: $model.showKeyTTL)
                         } label: { Image(systemName: "line.3.horizontal.decrease") }.menuIndicator(.hidden).help("键列表显示列")
                     }.buttonStyle(.borderless)
                 }.padding(14)
+                    .onChange(of: model.grouped) { _, _ in model.saveBrowserPreferences(); model.rebuildNamespaces() }
+                    .onChange(of: model.favoritesOnly) { _, _ in model.rebuildNamespaces() }
                     .onChange(of: model.showKeyTypes) { _, _ in model.requestVisibleMetadata() }
                     .onChange(of: model.showKeyTTL) { _, _ in model.requestVisibleMetadata() }
                 Divider()
@@ -186,6 +198,8 @@ struct WorkspaceView: View {
                 Divider()
                 HStack {
                     Text("已加载 \(model.keys.count)").font(.system(size: 10)).foregroundStyle(.secondary)
+                    if model.isBuildingNamespaces { ProgressView().controlSize(.mini).help("正在组织命名空间") }
+                    if model.grouped, model.namespaceTree.isLimited { Image(systemName: "folder.badge.questionmark").foregroundStyle(.orange).help("分组达到容量或深度上限，部分键以完整后缀显示；未丢弃键。") }
                     Spacer()
                     if model.isLoadingKeys {
                         ProgressView().controlSize(.small)
@@ -210,53 +224,17 @@ struct WorkspaceView: View {
                     if !model.scanFinished { Text(model.isStoppingScan ? "正在停止；等待本次响应" : "扫描尚未结束，可继续查找").font(.caption2).foregroundStyle(.secondary); Button("继续扫描") { model.loadKeys(reset: false) }.disabled(model.busy) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(selection: Binding(get: { model.selectedKeyID }, set: { id in DispatchQueue.main.async { model.selectKey(id) } })) {
-                    if model.grouped {
-                        ForEach(keyGroups) { group in
-                            DisclosureGroup(isExpanded: Binding(get: { !collapsedNamespaces.contains(group.id) }, set: { expanded in
-                                if expanded { collapsedNamespaces.remove(group.id) } else { collapsedNamespaces.insert(group.id) }
-                            })) {
-                                ForEach(group.keys) { key in keyRow(key).tag(key.id) }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "folder").foregroundStyle(.secondary)
-                                    Text(group.id).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                                    Spacer()
-                                    Text(String(group.keys.count)).font(.system(size: 10)).foregroundStyle(.tertiary)
-                                }
-                            }.padding(.vertical, 2)
-                        }
-                    } else { ForEach(model.visibleKeys) { key in keyRow(key).tag(key.id) } }
+                List(selection: Binding(get: { selectedTreeItem ?? model.selectedKeyID }, set: { id in
+                    DispatchQueue.main.async {
+                        if let id, id.hasPrefix("folder:") { selectedTreeItem = id }
+                        else { selectedTreeItem = nil; model.selectKey(id) }
+                    }
+                })) {
+                    if model.grouped && !model.isBuildingNamespaces {
+                        ForEach(model.namespaceTree.roots) { KeyNamespaceBranch(node: $0) }
+                    } else { ForEach(model.visibleKeys) { key in KeyBrowserRow(key: key).tag(key.id) } }
                 }.listStyle(.inset).scrollContentBackground(.hidden).disabled(model.isWriting)
             }
-        }
-    }
-    private struct KeyGroup: Identifiable { let id: String; let keys: [RedisKey] }
-    private var keyGroups: [KeyGroup] {
-        Dictionary(grouping: model.visibleKeys, by: \.namespace).map { KeyGroup(id: $0.key, keys: $0.value) }.sorted { $0.id < $1.id }
-    }
-    private func keyRow(_ key: RedisKey) -> some View {
-        let revision = model.keyListRevision
-        return HStack(spacing: 8) {
-            if model.showKeyTypes { Image(systemName: key.kind.symbol).font(.system(size: 11)).foregroundStyle(key.kind.color).frame(width: 14) }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(key.name).font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-                HStack(spacing: 7) {
-                    if model.showKeyTypes { Text(key.rawType ?? "类型未知").font(.system(size: 9)).foregroundStyle(.secondary).help(key.typeError?.localizedDescription ?? "尚未读取") }
-                    if model.showKeyTTL, let ttl = key.ttl, ttl >= 0 { Label("有过期时间", systemImage: "clock").font(.system(size: 9)).foregroundStyle(.secondary) }
-                    if model.showKeyTTL, key.ttl == nil { Text("TTL 未知").font(.system(size: 9)).foregroundStyle(.secondary).help(key.ttlError?.localizedDescription ?? "尚未读取") }
-                }
-            }
-            Spacer(minLength: 0)
-            if model.isFavorite(key) { Image(systemName: "star.fill").font(.system(size: 8)).foregroundStyle(.orange) }
-        }.padding(.vertical, 6).help(key.name)
-        .background(RowVisibility(identity: key.id + revision.uuidString) { visible, observer in
-            if visible { model.keyAppeared(key.id, revision: revision, observer: observer) }
-            else { model.keyDisappeared(key.id, revision: revision, observer: observer) }
-        }.allowsHitTesting(false))
-        .contextMenu {
-            Button("复制键名", systemImage: "doc.on.doc") { copyText(key.name) }
-            Button(model.isFavorite(key) ? "取消收藏" : "收藏键", systemImage: "star") { model.toggleFavorite(key) }
         }
     }
 

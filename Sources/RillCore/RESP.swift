@@ -128,6 +128,19 @@ public enum DataPresentation {
         text(data).replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r").replacingOccurrences(of: "\t", with: "\\t")
     }
+    public static func previewKey(_ data: Data, limit: Int = 256) -> String {
+        var prefix = Data(data.prefix(max(0, limit)))
+        if prefix.count < data.count, !prefix.isEmpty {
+            var end = prefix.count
+            while end > 0, (0x80...0xBF).contains(prefix[end - 1]) { end -= 1 }
+            if end > 0 {
+                let lead = prefix[end - 1]
+                let expected = (0xC2...0xDF).contains(lead) ? 2 : (0xE0...0xEF).contains(lead) ? 3 : (0xF0...0xF4).contains(lead) ? 4 : 1
+                if prefix.count - end + 1 < expected { prefix = Data(prefix.prefix(end - 1)) }
+            }
+        }
+        return key(prefix) + (data.count > prefix.count ? "…（\(data.count) 字节）" : "")
+    }
     public static func hex(_ data: Data) -> String {
         stride(from: 0, to: data.count, by: 16).map { offset in
             let end = min(offset + 16, data.count)
