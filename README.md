@@ -2,6 +2,8 @@
 
 一个专注日常开发的 macOS 原生 Redis 客户端。SwiftUI + AppKit，Network.framework 直连 Redis，密码保存到 macOS 钥匙串。无第三方 Swift 依赖，无 WebView、Electron 或 Node 运行时。
 
+开发版本已实施 R01–R11，逐项提交与实际验收状态见 [迁移实施记录](docs/research/implementation-log.md)。部分原生交互尚待验收，首版 v0.1.0 的历史说明保持独立。
+
 ## 运行
 
 需要 macOS 14+、Xcode/Swift 6 工具链。目标协议 Redis 6.2+ standalone。

@@ -160,10 +160,10 @@ struct KeyDetailView: View {
             }
             Table(localMemberFilter.isEmpty || page.key.kind != .list ? page.rows : page.rows.filter { $0.valueText.localizedCaseInsensitiveContains(localMemberFilter) }, selection: $selectedRow) {
                 TableColumn(columnTitle(page.key.kind)) { row in
-                    Text(row.fieldText).font(RillTheme.mono).lineLimit(2).textSelection(.enabled)
+                    Text(DataPresentation.previewKey(row.field)).font(RillTheme.mono).lineLimit(2).textSelection(.enabled)
                 }.width(min: 95, ideal: page.key.kind == .stream ? 150 : 150, max: 250)
                 TableColumn(page.key.kind == .zset ? "Score" : page.key.kind == .set ? "字节" : "Value") { row in
-                    Text(page.key.kind == .set ? String(row.value.count) : row.score ?? String(row.valueText.prefix(500))).font(RillTheme.mono).lineLimit(page.key.kind == .stream ? 4 : 3).textSelection(.enabled)
+                    Text(page.key.kind == .set ? String(row.value.count) : row.score ?? RESPValue.bulk(row.value).preview(maximumCharacters: 500)).font(RillTheme.mono).lineLimit(page.key.kind == .stream ? 4 : 3).textSelection(.enabled)
                 }.width(min: 150, ideal: 320)
                 TableColumn("") { row in
                     Menu {
@@ -176,7 +176,7 @@ struct KeyDetailView: View {
                                 model.mutate("删除成员", message: "从「\(page.key.name)」中删除「\(row.fieldText)」。", destructive: true) { try await $0.deleteRow(key: page.key.bytes, kind: page.key.kind, row: row) }
                             }.disabled(!model.canWrite)
                         }
-                    } label: { Image(systemName: "ellipsis") }.menuIndicator(.hidden).menuStyle(.borderlessButton).fixedSize().accessibilityLabel("成员 \(row.fieldText) 的操作")
+                    } label: { Image(systemName: "ellipsis") }.menuIndicator(.hidden).menuStyle(.borderlessButton).fixedSize().accessibilityLabel("成员 \(DataPresentation.previewKey(row.field)) 的操作")
                 }.width(25)
             }.tableStyle(.inset(alternatesRowBackgrounds: true))
             if page.hasMore {

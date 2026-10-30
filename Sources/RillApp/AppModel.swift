@@ -586,7 +586,7 @@ final class AppModel: ObservableObject {
             isPreparingValue = false
             do {
                 let encoded = try result.get()
-                mutate("保存值", message: "将写入 \(encoded.count) 字节，保留当前 TTL 并检查原值冲突。") {
+                mutate("保存值", message: "将向「\(page.key.name)」写入 \(encoded.count) 字节，保留当前 TTL 并检查原值冲突。") {
                     try await $0.saveString(key: page.key.bytes, expected: original, replacement: encoded)
                 }
             } catch { presentError(error) }
@@ -696,9 +696,9 @@ final class AppModel: ObservableObject {
                 guard generation == token else { return }
                 let secret = profile.id == demoID ? "" : try keychain.password(for: profile.id)
                 let result = try await consoleSession.execute(arguments, profile: profile, password: secret)
-                let rendered = result.value.pretty
+                let rendered = await Task.detached(priority: .userInitiated) { result.value.preview() }.value
                 guard generation == token else { return }
-                consoleEntries.append(ConsoleEntry(command: command, output: String(rendered.prefix(100_000)) + (rendered.count > 100_000 ? "\n…显示已截断" : ""),
+                consoleEntries.append(ConsoleEntry(command: command, output: rendered,
                                                    milliseconds: result.commandMilliseconds, preparationMilliseconds: result.preparationMilliseconds,
                                                    reusedConnection: result.reusedConnection, failed: false))
                 if !CommandPolicy.isRead(arguments) { notify("命令已执行；切回数据浏览后按 ⌘R 刷新") }

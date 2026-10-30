@@ -122,7 +122,10 @@ public enum RESPCodec {
 public enum DataPresentation {
     public static func text(_ data: Data) -> String {
         if let text = String(data: data, encoding: .utf8), !data.contains(0) { return text }
-        return "0x" + data.map { String(format: "%02x", $0) }.joined()
+        let digits = Array("0123456789abcdef".utf8)
+        var output: [UInt8] = [48, 120]; output.reserveCapacity(2 + data.count * 2)
+        for byte in data { output.append(digits[Int(byte >> 4)]); output.append(digits[Int(byte & 15)]) }
+        return String(decoding: output, as: UTF8.self)
     }
     public static func key(_ data: Data) -> String {
         text(data).replacingOccurrences(of: "\n", with: "\\n")
