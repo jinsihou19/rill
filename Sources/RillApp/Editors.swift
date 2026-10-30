@@ -165,6 +165,7 @@ struct MetadataEditor: View {
         VStack(alignment: .leading, spacing: 19) {
             SheetHeading(symbol: mode == .ttl ? "clock" : "pencil", title: mode == .ttl ? "设置过期时间" : "重命名键", subtitle: model.detail?.key.name ?? "").padding(-24)
             if mode == .ttl {
+                if model.detail?.key.ttl == nil { Text("当前 TTL 无法读取。应用后将使用你选择的新过期策略。").font(.caption).foregroundStyle(.orange) }
                 Toggle("永久有效", isOn: $permanent)
                 HStack { TextField("TTL", text: $value).textFieldStyle(.roundedBorder).disabled(permanent); Text("秒").foregroundStyle(.secondary) }
                 Text("从操作成功时开始计时，不更改键值。").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -175,7 +176,7 @@ struct MetadataEditor: View {
             if let error { Text(error).font(.system(size: 11)).foregroundStyle(.red) }
             HStack { Spacer(); Button("取消") { dismiss() }.keyboardShortcut(.cancelAction); Button("应用") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) }
         }.padding(24).frame(width: 440).tint(RillTheme.accent).onAppear {
-            if mode == .ttl { let ttl = model.detail?.key.ttl ?? -1; permanent = ttl < 0; value = String(max(1, ttl / 1000)) }
+            if mode == .ttl { let ttl = model.detail?.key.ttl; permanent = ttl == -1; value = String(max(1, (ttl ?? 60_000) / 1000)) }
             else { value = model.detail.flatMap { String(data: $0.key.bytes, encoding: .utf8) } ?? "" }
         }
     }

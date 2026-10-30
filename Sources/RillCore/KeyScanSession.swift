@@ -38,6 +38,10 @@ public actor KeyScanSession {
     public func pause() { paused = true }
 
     public func nextPage(fetch: @Sendable (String) async throws -> ScanPage) async throws -> ScanBatch {
+        try await nextPage(fetchWithinBudget: { cursor, _ in try await fetch(cursor) })
+    }
+
+    public func nextPage(fetchWithinBudget fetch: @Sendable (String, Int) async throws -> ScanPage) async throws -> ScanBatch {
         guard !running else { throw RedisError.message("当前扫描响应尚未处理完，请稍后继续。") }
         running = true; paused = false
         defer { running = false }
@@ -45,8 +49,9 @@ public actor KeyScanSession {
         var requests = 0
         while pending.count < budget.results, !limited, (!started || cursor != "0"),
               !paused, requests < budget.requests, ContinuousClock.now < deadline {
-            let page = try await fetch(cursor)
-            requests += 1; cursor = page.cursor; started = true
+            let page = try await fetch(cursor, budget.requests - requests)
+            requests += page.requests
+            if !page.needsRetry { cursor = page.cursor; started = true }
             for key in page.keys where !seen.contains(key.bytes) {
                 guard seen.count < budget.maximumKeys, keyBytes + key.bytes.count <= budget.maximumKeyBytes else {
                     limited = true; break

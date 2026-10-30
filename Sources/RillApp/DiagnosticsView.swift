@@ -100,16 +100,30 @@ struct OverviewView: View {
                     infoRow("内存上限", info["maxmemory_human"] ?? "—")
                     infoRow("淘汰策略", info["maxmemory_policy"] ?? "—")
                     infoRow("角色", info["role"] ?? "—")
-                    infoRow("持久化", "AOF \(info["aof_enabled"] == "1" ? "开启" : "关闭") · RDB \(info["rdb_last_bgsave_status"] ?? "—")")
+                    infoRow("持久化", "AOF \(info["aof_enabled"].map { $0 == "1" ? "开启" : "关闭" } ?? "未知") · RDB \(info["rdb_last_bgsave_status"] ?? "—")")
                     ForEach(info.keys.filter { $0.hasPrefix("db") && Int($0.dropFirst(2)) != nil }.sorted(), id: \.self) { key in infoRow(key.uppercased(), info[key] ?? "") }
                 }.background(RillTheme.panel.opacity(0.4), in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(RillTheme.border))
                 Text("指标来自本次 INFO 响应。命中率反映实例自启动以来的累计情况，不能代替业务时段分析。").font(.system(size: 10)).foregroundStyle(.tertiary)
+                if !model.capabilityStates.isEmpty { capabilitySection }
             }.padding(28).frame(maxWidth: 1100)
         }.overlay { if model.diagnosticsLoading { ProgressView().padding(15).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10)) } }
     }
     private var hitRate: String {
         guard let hits = Double(info["keyspace_hits"] ?? ""), let misses = Double(info["keyspace_misses"] ?? ""), hits + misses > 0 else { return "—" }
         return String(format: "%.1f%%", hits / (hits + misses) * 100)
+    }
+    private var capabilitySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("当前连接能力").font(.system(size: 13, weight: .semibold))
+            Text("根据实际请求结果记录；未使用的命令不作推断。重新连接后重新检测。").font(.caption).foregroundStyle(.secondary)
+            ForEach(model.capabilityStates) { item in
+                HStack {
+                    Text(item.id).fontDesign(.monospaced)
+                    Spacer()
+                    Text(item.status.rawValue).foregroundStyle(item.status == .available ? Color.secondary : Color.orange)
+                }.font(.system(size: 11)).help(item.message ?? "最近一次请求可用")
+            }
+        }.padding(17).background(RillTheme.panel.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
     private func infoRow(_ name: String, _ value: String) -> some View {
         HStack { Text(name).foregroundStyle(.secondary); Spacer(); Text(value).fontDesign(.monospaced).textSelection(.enabled) }.font(.system(size: 11)).padding(.horizontal, 17).padding(.vertical, 11)

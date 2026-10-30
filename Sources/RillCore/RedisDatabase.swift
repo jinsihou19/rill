@@ -5,6 +5,7 @@ public final class RedisDatabase: @unchecked Sendable {
     public static let pageSize = 200
     public let profile: ConnectionProfile
     public let wire: RedisConnection
+    public let capabilities = RedisCapabilities()
     public private(set) var server: [String: String] = [:]
     public private(set) var latency: Double = 0
 
@@ -21,7 +22,8 @@ public final class RedisDatabase: @unchecked Sendable {
             let result = RedisDatabase(profile: profile, wire: connection)
             let start = Date(); _ = try await connection.execute(["PING"])
             result.latency = Date().timeIntervalSince(start) * 1000
-            if let info = try? await connection.execute(["INFO", "server"]).string { result.server = parseInfo(info) }
+            let info = try await result.observed(["INFO", "server"], feature: "INFO")
+            if let value = info.string { result.server = parseInfo(value) }
             if let mode = result.server["redis_mode"], mode != "standalone" {
                 throw RedisError.message("此连接为 \(mode) 模式。当前版本仅支持 standalone，请连接独立实例。")
             }
@@ -30,43 +32,82 @@ public final class RedisDatabase: @unchecked Sendable {
     }
     public func close() { wire.close() }
 
-    public func lookup(_ key: Data, kind: String = "") async throws -> RedisKey? {
-        let replies = try await wire.pipeline([[Data("TYPE".utf8), key], [Data("PTTL".utf8), key]])
-        let type = try replies[0].checked().string ?? "none"
-        guard type != "none", kind.isEmpty || type == kind else { return nil }
-        let ttl = try replies[1].checked().number ?? -2
-        guard ttl != -2 else { return nil }
-        return RedisKey(bytes: key, kind: KeyKind(rawValue: type) ?? .unknown, ttl: ttl)
+    private func observed(_ args: [String], feature: String) async throws -> RESPValue {
+        let reply = try await wire.pipeline([args.map { Data($0.utf8) }])[0]
+        await capabilities.observe(feature, reply: reply)
+        return reply
     }
 
-    public func scan(cursor: String, pattern: String, kind: String = "") async throws -> ScanPage {
+    public func lookup(_ key: Data, kind: String = "") async throws -> RedisKey? {
+        guard let row = try await metadata(for: [key]).first else { return nil }
+        if let error = row.typeError { throw error }
+        guard kind.isEmpty || row.rawType == kind else { return nil }
+        return row
+    }
+
+    public func metadata(for keys: [Data], knownKind: String? = nil, includeTTL: Bool = true, includeMemory: Bool = false) async throws -> [RedisKey] {
+        guard !keys.isEmpty else { return [] }
+        var commands: [[Data]] = []
+        for key in keys {
+            if knownKind == nil { commands.append([Data("TYPE".utf8), key]) }
+            if includeTTL { commands.append([Data("PTTL".utf8), key]) }
+            if includeMemory { commands.append([Data("MEMORY".utf8), Data("USAGE".utf8), key]) }
+        }
+        let replies = try await wire.pipeline(commands)
+        var index = 0, rows: [RedisKey] = [], observations: [String: RESPValue] = [:]
+        func read(_ feature: String) -> RESPValue {
+            let reply = replies[index]; index += 1
+            if observations[feature]?.serverError == nil { observations[feature] = reply }
+            return reply
+        }
+        for key in keys {
+            let type = knownKind.map(RESPValue.simple) ?? read("TYPE")
+            let ttl = includeTTL ? read("PTTL") : .bulk(nil)
+            let memory = includeMemory ? read("MEMORY USAGE") : .bulk(nil)
+            if type.string == "none" || ttl.number == -2 { continue }
+            rows.append(RedisKey(bytes: key, kind: KeyKind(rawValue: type.string ?? "") ?? .unknown, ttl: ttl.number,
+                                 rawType: type.string, typeError: type.serverError, ttlError: ttl.serverError,
+                                 memory: memory.number, memoryError: memory.serverError))
+        }
+        for (feature, reply) in observations { await capabilities.observe(feature, reply: reply) }
+        return rows
+    }
+
+    public func scan(cursor: String, pattern: String, kind: String = "", maximumRequests: Int = 2) async throws -> ScanPage {
         var args = ["SCAN", cursor, "MATCH", pattern.isEmpty ? "*" : pattern, "COUNT", String(Self.pageSize)]
-        if !kind.isEmpty { args += ["TYPE", kind] }
-        let response = try await wire.execute(args)
+        let supportsType = await capabilities.supportsScanType()
+        let useType = !kind.isEmpty && supportsType
+        if useType { args += ["TYPE", kind] }
+        let response: RESPValue
+        do {
+            response = try await observed(args, feature: useType ? "SCAN TYPE" : "SCAN").checked()
+        } catch {
+            guard useType, RedisCapabilities.canRetryScanWithoutType(error), let issue = error as? RedisError else { throw error }
+            await capabilities.markScanTypeUnsupported(issue)
+            guard maximumRequests > 1 else { return ScanPage(cursor: cursor, keys: [], needsRetry: true) }
+            var fallback = try await scan(cursor: cursor, pattern: pattern, kind: kind, maximumRequests: maximumRequests - 1)
+            fallback.requests += 1
+            return fallback
+        }
         guard let values = response.elements, values.count == 2, let cursor = values[0].string,
               let rawKeys = values[1].elements else { throw RedisError.message("SCAN 响应格式无效。") }
         let keys = Array(Set(rawKeys.compactMap(\.data))).sorted { $0.lexicographicallyPrecedes($1) }
         if keys.isEmpty { return ScanPage(cursor: cursor, keys: []) }
-        let commands = keys.flatMap { key in [[Data("TYPE".utf8), key], [Data("PTTL".utf8), key]] }
-        let metadata = try await wire.pipeline(commands)
-        var rows: [RedisKey] = []
-        for (i, key) in keys.enumerated() {
-            let type = try metadata[i * 2].checked().string ?? "unknown"
-            let ttl = try metadata[i * 2 + 1].checked().number ?? -2
-            if type != "none", ttl != -2 { rows.append(RedisKey(bytes: key, kind: KeyKind(rawValue: type) ?? .unknown, ttl: ttl)) }
+        let rows = try await metadata(for: keys, knownKind: useType ? kind : nil)
+        if !kind.isEmpty && !useType {
+            if let error = rows.first(where: { $0.typeError != nil })?.typeError { throw error }
+            return ScanPage(cursor: cursor, keys: rows.filter { $0.rawType == kind })
         }
         return ScanPage(cursor: cursor, keys: rows)
     }
 
-    public func size() async throws -> Int64 { try await wire.execute(["DBSIZE"]).number ?? 0 }
+    public func size() async throws -> Int64 { try await observed(["DBSIZE"], feature: "DBSIZE").checked().number ?? 0 }
 
     public func inspect(_ key: Data, cursor: String = "0", offset: Int = 0) async throws -> KeyPage {
-        let meta = try await wire.pipeline([[Data("TYPE".utf8), key], [Data("PTTL".utf8), key], [Data("MEMORY".utf8), Data("USAGE".utf8), key]])
-        let type = try meta[0].checked().string ?? "none"
-        let ttl = try meta[1].checked().number ?? -2
-        guard type != "none", ttl != -2 else { throw RedisError.message("这个键已过期或被删除，请刷新键列表。") }
-        let kind = KeyKind(rawValue: type) ?? .unknown
-        var page = KeyPage(key: RedisKey(bytes: key, kind: kind, ttl: ttl), count: 0, memory: meta[2].number)
+        guard let row = try await metadata(for: [key], includeMemory: true).first else { throw RedisError.message("这个键已过期或被删除，请刷新键列表。") }
+        if let error = row.typeError { throw error }
+        let kind = row.kind
+        var page = KeyPage(key: row, count: 0, memory: row.memory)
         func run(_ parts: [Data]) async throws -> RESPValue { try await wire.execute(parts) }
         func args(_ prefix: String, _ rest: [String] = []) -> [Data] { [Data(prefix.utf8), key] + rest.map { Data($0.utf8) } }
         switch kind {
@@ -110,7 +151,7 @@ public final class RedisDatabase: @unchecked Sendable {
     }
 
     public func info() async throws -> [String: String] {
-        Self.parseInfo(try await wire.execute(["INFO"]).string ?? "")
+        Self.parseInfo(try await observed(["INFO"], feature: "INFO").checked().string ?? "")
     }
     public static func parseInfo(_ input: String) -> [String: String] {
         var result: [String: String] = [:]
@@ -121,7 +162,7 @@ public final class RedisDatabase: @unchecked Sendable {
         return result
     }
     public func slowQueries() async throws -> [SlowQuery] {
-        let result = try await wire.execute(["SLOWLOG", "GET", "50"]).elements ?? []
+        let result = try await observed(["SLOWLOG", "GET", "50"], feature: "SLOWLOG GET").checked().elements ?? []
         return result.compactMap { item in
             guard let row = item.elements, row.count >= 4, let id = row[0].number,
                   let timestamp = row[1].number, let duration = row[2].number else { return nil }

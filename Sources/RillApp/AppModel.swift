@@ -63,7 +63,8 @@ final class AppModel: ObservableObject {
     @Published var grouped = true
     @Published var favoritesOnly = false
     @Published var scanFinished = false
-    @Published var totalKeys: Int64 = 0
+    @Published var totalKeys: Int64?
+    @Published var capabilityStates: [RedisCapability] = []
     @Published var serverInfo: [String: String] = [:]
     @Published var slowQueries: [SlowQuery] = []
     @Published var consoleInput = ""
@@ -147,8 +148,9 @@ final class AppModel: ObservableObject {
             do {
                 let secret = profile.id == demoID ? "" : try keychain.password(for: profile.id)
                 let db = try await RedisDatabase.connect(profile, password: secret)
+                let states = await db.capabilities.snapshot()
                 guard generation == token, !Task.isCancelled else { db.close(); return }
-                database = db; serverInfo = db.server; isConnecting = false
+                database = db; serverInfo = db.server; capabilityStates = states; isConnecting = false
                 db.wire.onDisconnect { [weak self] reason in
                     Task { @MainActor in
                         guard let self, self.generation == token else { return }
@@ -168,7 +170,7 @@ final class AppModel: ObservableObject {
     private func reset() {
         generation = UUID(); detailGeneration = UUID(); keyGeneration = UUID(); scanSession = nil
         connectTask?.cancel(); scanTask?.cancel(); detailTask?.cancel(); database?.close(); database = nil
-        keys = []; selectedKeyID = nil; detail = nil; draft = ""; scanFinished = false; totalKeys = 0
+        keys = []; selectedKeyID = nil; detail = nil; draft = ""; scanFinished = false; totalKeys = nil; capabilityStates = []
         serverInfo = [:]; slowQueries = []; consoleEntries = []; consoleInput = ""
         connectionLost = false
         isConnecting = false; isLoadingKeys = false; isStoppingScan = false; isLoadingDetail = false; isWriting = false; diagnosticsLoading = false; isConsoleRunning = false
@@ -205,7 +207,9 @@ final class AppModel: ObservableObject {
                 if let exact = try mode.exactKey(query) {
                     if let key = try await db.lookup(exact, kind: kind) { additions = [key] }
                 } else {
-                    let batch = try await session.nextPage { cursor in try await db.scan(cursor: cursor, pattern: pattern, kind: kind) }
+                    let batch = try await session.nextPage(fetchWithinBudget: { cursor, remaining in
+                        try await db.scan(cursor: cursor, pattern: pattern, kind: kind, maximumRequests: remaining)
+                    })
                     additions = batch.keys; reason = batch.reason
                 }
                 guard token == generation, keyToken == keyGeneration else { return }
@@ -213,13 +217,15 @@ final class AppModel: ObservableObject {
                 let selectedPage: KeyPage?
                 if reset, reason != .paused, let previousKey, mode == .pattern || additions.contains(where: { $0.bytes == previousKey }) { selectedPage = try? await db.inspect(previousKey) }
                 else { selectedPage = nil }
+                let observedCapabilities = await db.capabilities.snapshot()
                 guard token == generation, keyToken == keyGeneration, !Task.isCancelled else { return }
+                capabilityStates = observedCapabilities
                 var merged = Dictionary(keys.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
                 for key in additions { merged[key.id] = key }
                 if let selectedPage { merged[selectedPage.key.id] = selectedPage.key }
                 keys = merged.values.sorted { $0.bytes.lexicographicallyPrecedes($1.bytes) }
                 scanState = reason; scanFinished = reason == .complete || reason == .capacity
-                if let count { totalKeys = count }
+                if reset { totalKeys = count }
                 isLoadingKeys = false; isStoppingScan = false
                 if mode != .pattern, reset, !preserveSelection, let key = additions.first { startDetail(key.id); return }
                 if reset {
@@ -257,8 +263,10 @@ final class AppModel: ObservableObject {
         detailTask = Task {
             do {
                 let page = try await db.inspect(key.bytes)
+                let states = await db.capabilities.snapshot()
                 guard token == generation, detailToken == detailGeneration else { return }
                 detail = page; draft = page.content.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                capabilityStates = states
                 if let data = page.content {
                     if data.contains(0) || String(data: data, encoding: .utf8) == nil { valueFormat = "Hex" }
                     else if changingKey, (draft.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") || draft.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[")),
@@ -437,8 +445,13 @@ final class AppModel: ObservableObject {
         guard let db = database, !diagnosticsLoading else { return }
         let token = generation; diagnosticsLoading = true
         Task {
-            do { let info = try await db.info(); if token == generation { serverInfo = info; diagnosticsLoading = false } }
-            catch { if token == generation { diagnosticsLoading = false; presentError(error) } }
+            do {
+                let info = try await db.info(), states = await db.capabilities.snapshot()
+                if token == generation { serverInfo = info; capabilityStates = states; diagnosticsLoading = false }
+            } catch {
+                let states = await db.capabilities.snapshot()
+                if token == generation { capabilityStates = states; diagnosticsLoading = false; presentError(error) }
+            }
         }
     }
     func loadSlowQueries() {

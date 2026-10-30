@@ -132,7 +132,7 @@ struct WorkspaceView: View {
         HStack(spacing: 12) {
             Image(systemName: model.tab.symbol).foregroundStyle(RillTheme.accent)
             Text(model.tab.title).font(.system(size: 15, weight: .semibold))
-            if model.tab == .browser { Text("\(model.totalKeys.formatted()) 个键").font(.caption).foregroundStyle(.secondary) }
+            if model.tab == .browser { Text(model.totalKeys.map { "\($0.formatted()) 个键" } ?? "键总数未知").font(.caption).foregroundStyle(.secondary) }
             Spacer()
             if let profile = model.activeProfile {
                 HStack(spacing: 6) {
@@ -235,8 +235,9 @@ struct WorkspaceView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(key.name).font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 7) {
-                    Text(key.kind.rawValue).font(.system(size: 9)).foregroundStyle(.secondary)
-                    if key.ttl >= 0 { Label("有过期时间", systemImage: "clock").font(.system(size: 9)).foregroundStyle(.secondary) }
+                    Text(key.rawType ?? "类型未知").font(.system(size: 9)).foregroundStyle(.secondary).help(key.typeError?.localizedDescription ?? "数据类型")
+                    if let ttl = key.ttl, ttl >= 0 { Label("有过期时间", systemImage: "clock").font(.system(size: 9)).foregroundStyle(.secondary) }
+                    if key.ttl == nil { Text("TTL 未知").font(.system(size: 9)).foregroundStyle(.secondary).help(key.ttlError?.localizedDescription ?? "尚未读取") }
                 }
             }
             Spacer(minLength: 0)

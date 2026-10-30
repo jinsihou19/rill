@@ -2,6 +2,25 @@ import XCTest
 @testable import RillCore
 
 final class ProtocolTests: XCTestCase {
+    func testServerFailureCategoriesAndScanFallbackRemainConservative() throws {
+        for (text, category) in [("NOPERM command denied", RedisFailureCategory.permission), ("NOAUTH required", .authentication),
+                                 ("WRONGPASS invalid", .authentication), ("ERR unknown command 'X'", .unsupported),
+                                 ("WRONGTYPE changed", .wrongType), ("MOVED 12 host:1", .topology)] {
+            let issue = RedisError.server(text)
+            XCTAssertEqual(issue.category, category); XCTAssertTrue(issue.localizedDescription.contains(text))
+            XCTAssertThrowsError(try RESPValue.error(text).checked())
+            XCTAssertFalse(RedisCapabilities.canRetryScanWithoutType(issue))
+        }
+        XCTAssertTrue(RedisCapabilities.canRetryScanWithoutType(RedisError.server("ERR syntax error")))
+        XCTAssertTrue(RedisCapabilities.canRetryScanWithoutType(RedisError.server("ERR unknown option TYPE")))
+        XCTAssertFalse(RedisCapabilities.canRetryScanWithoutType(RedisError.message("connection lost")))
+        XCTAssertEqual(RedisKey(bytes: Data()).ttlLabel, "TTL 未知")
+        XCTAssertEqual(RedisKey(bytes: Data(), ttl: -1).ttlLabel, "永久有效")
+        XCTAssertEqual(RedisKey(bytes: Data(), ttl: -2).ttlLabel, "已不存在")
+        for command in ["BITOP OR a b", "XREADGROUP GROUP g c STREAMS s >", "JSON.GET key", "CONFIG SET x y"] {
+            XCTAssertThrowsError(try CommandPolicy.validate(CommandLine.parse(command), readOnly: true))
+        }
+    }
     func testExactSearchInputPreservesLiteralAndBinaryKeys() throws {
         let literal = "  中文:a*b?[x]\\n  "
         XCTAssertEqual(try KeySearchMode.exact.exactKey(literal), Data(literal.utf8))

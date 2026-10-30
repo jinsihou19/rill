@@ -75,4 +75,18 @@ final class KeyScanSessionTests: XCTestCase {
         }
         XCTAssertEqual(batch.reason, .budget); XCTAssertEqual(batch.requests, 1)
     }
+    func testFeatureRetryConsumesBudgetWithoutFinishingAtInitialCursor() async throws {
+        let session = KeyScanSession(budget: ScanBudget(requests: 1))
+        let deferred = try await session.nextPage(fetchWithinBudget: { cursor, remaining in
+            XCTAssertEqual(remaining, 1)
+            return ScanPage(cursor: cursor, keys: [], needsRetry: true)
+        })
+        XCTAssertEqual(deferred.reason, .budget); XCTAssertEqual(deferred.requests, 1)
+        let rows = [key("found")]
+        let next = try await session.nextPage { cursor in
+            XCTAssertEqual(cursor, "0")
+            return ScanPage(cursor: "0", keys: rows)
+        }
+        XCTAssertEqual(next.reason, .complete); XCTAssertEqual(next.keys.map(\.name), ["found"])
+    }
 }

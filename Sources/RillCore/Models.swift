@@ -91,7 +91,23 @@ public enum RedisGlob {
 public struct RedisKey: Identifiable, Equatable, Sendable {
     public let bytes: Data
     public let kind: KeyKind
-    public let ttl: Int64
+    public let ttl: Int64?
+    public let rawType: String?
+    public let typeError: RedisError?
+    public let ttlError: RedisError?
+    public let memory: Int64?
+    public let memoryError: RedisError?
+    public let metadataLoaded: Bool
+    public init(bytes: Data, kind: KeyKind = .unknown, ttl: Int64? = nil, rawType: String? = nil,
+                typeError: RedisError? = nil, ttlError: RedisError? = nil, memory: Int64? = nil,
+                memoryError: RedisError? = nil, metadataLoaded: Bool = true) {
+        self.bytes = bytes; self.kind = kind; self.ttl = ttl; self.rawType = rawType ?? (kind == .unknown ? nil : kind.rawValue)
+        self.typeError = typeError; self.ttlError = ttlError; self.memory = memory; self.memoryError = memoryError; self.metadataLoaded = metadataLoaded
+    }
+    public var ttlLabel: String {
+        guard let ttl else { return "TTL 未知" }
+        return ttl == -1 ? "永久有效" : ttl == -2 ? "已不存在" : "TTL \(max(0, ttl) / 1000)s"
+    }
     public var id: String { bytes.base64EncodedString() }
     public var name: String { DataPresentation.key(bytes) }
     public var namespace: String {
@@ -127,6 +143,8 @@ public struct KeyPage: Sendable {
 public struct ScanPage: Sendable {
     public let cursor: String
     public let keys: [RedisKey]
+    public var requests = 1
+    public var needsRetry = false
 }
 
 public struct SlowQuery: Identifiable, Sendable {

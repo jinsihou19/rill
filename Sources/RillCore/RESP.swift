@@ -1,12 +1,33 @@
 import Foundation
 
-public enum RedisError: LocalizedError, Equatable {
+public enum RedisError: LocalizedError, Equatable, Sendable {
     case message(String)
+    case server(String)
+    public var category: RedisFailureCategory {
+        guard case .server(let text) = self else { return .other }
+        let upper = text.uppercased()
+        if upper.hasPrefix("NOPERM") { return .permission }
+        if upper.hasPrefix("NOAUTH") || upper.hasPrefix("WRONGPASS") { return .authentication }
+        if upper.hasPrefix("WRONGTYPE") { return .wrongType }
+        if upper.hasPrefix("MOVED ") || upper.hasPrefix("ASK ") || upper.hasPrefix("CLUSTERDOWN") { return .topology }
+        if upper.contains("UNKNOWN COMMAND") || upper.contains("UNSUPPORTED") { return .unsupported }
+        return .other
+    }
     public var errorDescription: String? {
         if case .message(let text) = self { return text }
-        return nil
+        guard case .server(let text) = self else { return nil }
+        switch category {
+        case .permission: return "当前账户没有此命令或键的权限。\n\(text)"
+        case .authentication: return "认证失败，请检查连接的用户名和密码。\n\(text)"
+        case .unsupported: return "服务器或代理不支持此命令/选项。\n\(text)"
+        case .wrongType: return "键的数据类型已变化或与操作不符，请刷新。\n\(text)"
+        case .topology: return "服务器要求集群路由，当前连接无法完成此操作。\n\(text)"
+        case .other: return text
+        }
     }
 }
+
+public enum RedisFailureCategory: Sendable { case permission, authentication, unsupported, wrongType, topology, other }
 
 public indirect enum RESPValue: Equatable, Sendable {
     case simple(String), error(String), integer(Int64), bulk(Data?), array([RESPValue]?)
@@ -21,8 +42,9 @@ public indirect enum RESPValue: Equatable, Sendable {
     public var string: String? { data.flatMap { String(data: $0, encoding: .utf8) } }
     public var elements: [RESPValue]? { if case .array(let items) = self { return items }; return nil }
     public var number: Int64? { if case .integer(let n) = self { return n }; return string.flatMap(Int64.init) }
+    public var serverError: RedisError? { if case .error(let text) = self { return .server(text) }; return nil }
     public func checked() throws -> RESPValue {
-        if case .error(let text) = self { throw RedisError.message(text) }
+        if let error = serverError { throw error }
         return self
     }
     public var pretty: String {

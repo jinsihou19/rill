@@ -89,15 +89,78 @@ final class RedisIntegrationTests: XCTestCase {
         _ = try await db.wire.execute([data("DEL"), keys[0]])
         let removed = try await db.lookup(keys[0]); XCTAssertNil(removed)
     }
+    func testOptionalMetadataAndInfoDenialsDoNotPreventReadingValues() async throws {
+        _ = try await db.wire.execute(["SET", "restricted", "value", "EX", "120"])
+        _ = try await db.wire.execute(["ACL", "SETUSER", "limited", "on", ">test", "~*", "+ping", "+scan", "+type", "+getrange", "+strlen"])
+        let limited = try await RedisDatabase.connect(ConnectionProfile(port: server.port, username: "limited", readOnly: true), password: "test")
+        defer { limited.close() }
+        XCTAssertTrue(limited.server.isEmpty)
+        let scan = try await limited.scan(cursor: "0", pattern: "*")
+        let row = try XCTUnwrap(scan.keys.first); XCTAssertNil(row.ttl); XCTAssertEqual(row.ttlError?.category, .permission)
+        let page = try await limited.inspect(data("restricted"))
+        XCTAssertEqual(page.content, data("value")); XCTAssertNil(page.key.ttl); XCTAssertNil(page.memory)
+        XCTAssertEqual(page.key.memoryError?.category, .permission)
+        let found = try await limited.lookup(data("restricted")); XCTAssertNotNil(found)
+        let states = await limited.capabilities.snapshot()
+        for command in ["INFO", "PTTL", "MEMORY USAGE"] { XCTAssertEqual(states.first { $0.id == command }?.status, .denied) }
+        do { _ = try await limited.size(); XCTFail() } catch { XCTAssertEqual((error as? RedisError)?.category, .permission) }
+        do { _ = try await limited.wire.execute(["COMMAND"]); XCTFail() } catch { XCTAssertEqual((error as? RedisError)?.category, .permission) }
+        _ = try await db.wire.execute(["ACL", "SETUSER", "limited", "-scan"])
+        do { _ = try await limited.scan(cursor: "0", pattern: "*"); XCTFail() } catch { XCTAssertEqual((error as? RedisError)?.category, .permission) }
+        let exact = try await limited.lookup(data("restricted")); XCTAssertNotNil(exact)
+        let ping = try await limited.wire.execute(["PING"]); XCTAssertEqual(ping.string, "PONG")
+    }
+    func testTypeDeniedStillListsNamesAndServerTypeFilterCanBeUsed() async throws {
+        _ = try await db.wire.execute(["SET", "one", "value"])
+        _ = try await db.wire.execute(["ACL", "SETUSER", "names", "on", ">test", "~*", "+ping", "+scan", "+pttl"])
+        let limited = try await RedisDatabase.connect(ConnectionProfile(port: server.port, username: "names"), password: "test")
+        defer { limited.close() }
+        let scan = try await limited.scan(cursor: "0", pattern: "*")
+        XCTAssertEqual(scan.keys.first?.bytes, data("one")); XCTAssertEqual(scan.keys.first?.kind, .unknown)
+        XCTAssertEqual(scan.keys.first?.typeError?.category, .permission)
+        let filtered = try await limited.scan(cursor: "0", pattern: "*", kind: "string")
+        XCTAssertEqual(filtered.keys.first?.kind, .string)
+        do { _ = try await limited.lookup(data("one")); XCTFail() } catch { XCTAssertEqual((error as? RedisError)?.category, .permission) }
+    }
+    func testScanTypeUnsupportedResponseFallsBackWithinBudget() async throws {
+        let fake = try ScriptedRedisServer { args in
+            let strings = args.map { String(decoding: $0, as: UTF8.self) }
+            switch strings.first {
+            case "PING": return Data("+PONG\r\n".utf8)
+            case "INFO": return Data("-NOPERM INFO denied\r\n".utf8)
+            case "SCAN": return strings.contains("TYPE") ? Data("-ERR syntax error\r\n".utf8) : Data("*2\r\n$1\r\n0\r\n*1\r\n$3\r\nkey\r\n".utf8)
+            case "TYPE": return Data("+string\r\n".utf8)
+            case "PTTL": return Data(":-1\r\n".utf8)
+            default: return Data("-ERR unexpected command\r\n".utf8)
+            }
+        }
+        try await fake.start(); defer { fake.stop() }
+        let database = try await RedisDatabase.connect(ConnectionProfile(port: fake.port), password: "")
+        defer { database.close() }
+        let session = KeyScanSession(budget: ScanBudget(requests: 1))
+        let first = try await session.nextPage(fetchWithinBudget: { cursor, remaining in
+            try await database.scan(cursor: cursor, pattern: "*", kind: "string", maximumRequests: remaining)
+        })
+        XCTAssertEqual(first.reason, .budget); XCTAssertTrue(first.keys.isEmpty); XCTAssertEqual(first.requests, 1)
+        let second = try await session.nextPage(fetchWithinBudget: { cursor, remaining in
+            try await database.scan(cursor: cursor, pattern: "*", kind: "string", maximumRequests: remaining)
+        })
+        XCTAssertEqual(second.reason, .complete); XCTAssertEqual(second.keys.first?.name, "key"); XCTAssertEqual(second.requests, 1)
+        let scans = fake.commands().filter { $0.first == "SCAN" }
+        XCTAssertEqual(scans.count, 2); XCTAssertTrue(scans[0].contains("TYPE")); XCTAssertFalse(scans[1].contains("TYPE"))
+        XCTAssertFalse(fake.commands().contains { $0.first == "KEYS" })
+        let states = await database.capabilities.snapshot()
+        XCTAssertEqual(states.first { $0.id == "SCAN TYPE" }?.status, .unsupported)
+    }
 
     func testStringConflictPreservesTTLAndBinary() async throws {
         let key = data("rill:中文🔑"), original = Data([0, 255, 10, 13])
         try await db.create(key: key, kind: .string, field: Data(), value: original, ttl: 120)
         let page = try await db.inspect(key)
-        XCTAssertEqual(page.content, original); XCTAssertGreaterThan(page.key.ttl, 115_000)
+        XCTAssertEqual(page.content, original); XCTAssertGreaterThan(try XCTUnwrap(page.key.ttl), 115_000)
         try await db.saveString(key: key, expected: original, replacement: data("new"))
         let saved = try await db.inspect(key)
-        XCTAssertEqual(saved.content, data("new")); XCTAssertGreaterThan(saved.key.ttl, 115_000)
+        XCTAssertEqual(saved.content, data("new")); XCTAssertGreaterThan(try XCTUnwrap(saved.key.ttl), 115_000)
         do { try await db.saveString(key: key, expected: original, replacement: data("wrong")); XCTFail("Must detect conflict") } catch {}
         let final = try await db.inspect(key); XCTAssertEqual(final.content, data("new"))
     }
@@ -129,7 +192,7 @@ final class RedisIntegrationTests: XCTestCase {
                 try await db.deleteRow(key: key, kind: kind, row: try XCTUnwrap(page.rows.first))
                 page = try await db.inspect(key); XCTAssertEqual(page.count, 1)
             }
-            XCTAssertGreaterThan(page.key.ttl, 110_000)
+            XCTAssertGreaterThan(try XCTUnwrap(page.key.ttl), 110_000)
         }
     }
     func testCursorScanFilteringAndDatabaseIsolation() async throws {
@@ -206,7 +269,7 @@ final class RedisIntegrationTests: XCTestCase {
         try await db.create(key: data("b"), kind: .string, field: Data(), value: data("two"))
         do { try await db.rename(data("a"), to: data("b")); XCTFail() } catch {}
         try await db.rename(data("a"), to: data("c")); try await db.expire(data("c"), seconds: 60)
-        var page = try await db.inspect(data("c")); XCTAssertGreaterThan(page.key.ttl, 55_000)
+        var page = try await db.inspect(data("c")); XCTAssertGreaterThan(try XCTUnwrap(page.key.ttl), 55_000)
         try await db.expire(data("c"), seconds: nil); page = try await db.inspect(data("c")); XCTAssertEqual(page.key.ttl, -1)
         _ = try await db.wire.execute([data("SET"), data("large"), Data(repeating: 65, count: RedisDatabase.previewLimit + 10)])
         let large = try await db.inspect(data("large")); XCTAssertTrue(large.isTruncated); XCTAssertEqual(large.content?.count, RedisDatabase.previewLimit)

@@ -62,11 +62,13 @@ struct KeyDetailView: View {
                 Label(page.key.kind == .string ? byteCount(page.count) : "\(page.count.formatted()) 个成员", systemImage: page.key.kind == .string ? "doc.text" : "square.stack")
                 if let memory = page.memory { Label(byteCount(memory), systemImage: "memorychip").help("Redis MEMORY USAGE 的估计值") }
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    let ttl = page.key.ttl < 0 ? page.key.ttl : max(0, page.key.ttl - Int64(context.date.timeIntervalSince(page.fetchedAt) * 1000))
+                    let ttl = page.key.ttl.map { $0 < 0 ? $0 : max(0, $0 - Int64(context.date.timeIntervalSince(page.fetchedAt) * 1000)) }
                     Button { model.sheet = EditorSheet(kind: .ttl) } label: {
-                        Label(ttl < 0 ? "永久有效" : ttl == 0 ? "即将过期 · 请刷新" : "TTL \(ttl / 1000)s", systemImage: "clock")
-                    }.buttonStyle(.plain).foregroundStyle(ttl >= 0 && ttl < 60_000 ? .orange : .secondary).disabled(!model.canWrite)
+                        Label(ttl.map { $0 < 0 ? "永久有效" : $0 == 0 ? "即将过期 · 请刷新" : "TTL \($0 / 1000)s" } ?? "TTL 未知", systemImage: "clock")
+                    }.buttonStyle(.plain).foregroundStyle(ttl.map { $0 >= 0 && $0 < 60_000 } == true ? .orange : .secondary).disabled(!model.canWrite)
+                        .help(page.key.ttlError?.localizedDescription ?? "剩余生存时间")
                 }
+                if let failure = page.key.memoryError { Image(systemName: "info.circle").help(failure.localizedDescription) }
             }.font(.system(size: 10)).foregroundStyle(.secondary)
         }.padding(23)
     }
