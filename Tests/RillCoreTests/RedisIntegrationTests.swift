@@ -241,6 +241,61 @@ final class RedisIntegrationTests: XCTestCase {
         let after = try await stats()
         XCTAssertEqual(calls(after, "type"), calls(known, "type")); XCTAssertEqual(calls(after, "pttl"), calls(known, "pttl"))
     }
+    func testConsoleReusesOneConnectionAndKeepsDatabaseIsolated() async throws {
+        _ = try await db.wire.execute(["SET", "scope", "browser"])
+        let before = try await db.info()
+        let session = ConsoleSession(), profile = ConnectionProfile(port: server.port, database: 1)
+        let first = try await session.execute(["SET", "scope", "console"], profile: profile, password: "rill-test-secret")
+        XCTAssertFalse(first.reusedConnection)
+        for _ in 0..<20 {
+            let next = try await session.execute(["PING"], profile: profile, password: "rill-test-secret")
+            XCTAssertEqual(next.value.string, "PONG"); XCTAssertTrue(next.reusedConnection)
+        }
+        let console = try await session.execute(["GET", "scope"], profile: profile, password: "rill-test-secret")
+        let browser = try await db.wire.execute(["GET", "scope"])
+        XCTAssertEqual(console.value.string, "console"); XCTAssertEqual(browser.string, "browser")
+        let after = try await db.info()
+        XCTAssertEqual((Int(after["total_connections_received"] ?? "") ?? 0) - (Int(before["total_connections_received"] ?? "") ?? 0), 1)
+        await session.close()
+    }
+    func testConcurrentConsoleRequestsSharePreparationAndServerErrorsKeepSession() async throws {
+        _ = try await db.wire.execute(["SET", "scope", "value"])
+        let before = try await db.info(), session = ConsoleSession(), profile = ConnectionProfile(port: server.port)
+        let results = try await withThrowingTaskGroup(of: ConsoleExecution.self) { group in
+            for _ in 0..<20 { group.addTask { try await session.execute(["GET", "scope"], profile: profile, password: "rill-test-secret") } }
+            var values: [ConsoleExecution] = []; for try await value in group { values.append(value) }; return values
+        }
+        XCTAssertTrue(results.allSatisfy { $0.value.string == "value" }); XCTAssertEqual(results.filter { !$0.reusedConnection }.count, 1)
+        do { _ = try await session.execute(["HGET", "scope", "field"], profile: profile, password: "rill-test-secret"); XCTFail() }
+        catch { XCTAssertEqual((error as? RedisError)?.category, .wrongType) }
+        let next = try await session.execute(["PING"], profile: profile, password: "rill-test-secret"); XCTAssertTrue(next.reusedConnection)
+        let after = try await db.info()
+        XCTAssertEqual((Int(after["total_connections_received"] ?? "") ?? 0) - (Int(before["total_connections_received"] ?? "") ?? 0), 1)
+        await session.close()
+    }
+    func testConsoleIdleEvictionCredentialChangesAndReadOnlyPolicy() async throws {
+        let session = ConsoleSession(idleSeconds: 0.05), profile = ConnectionProfile(port: server.port)
+        _ = try await session.execute(["PING"], profile: profile, password: "rill-test-secret")
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let idle = try await session.execute(["PING"], profile: profile, password: "rill-test-secret"); XCTAssertFalse(idle.reusedConnection)
+        do { _ = try await session.execute(["PING"], profile: profile, password: "wrong"); XCTFail() }
+        catch { XCTAssertEqual((error as? RedisError)?.category, .authentication) }
+        var readonly = profile; readonly.readOnly = true
+        for command in [["SET", "key", "v"], ["SELECT", "1"], ["MULTI"], ["BLPOP", "x", "0"]] {
+            do { _ = try await session.execute(command, profile: readonly, password: "rill-test-secret"); XCTFail() } catch {}
+        }
+        let valid = try await session.execute(["PING"], profile: readonly, password: "rill-test-secret"); XCTAssertEqual(valid.value.string, "PONG")
+        await session.close()
+    }
+    func testConsoleDetectedDisconnectRebuildsOnNextCommand() async throws {
+        let session = ConsoleSession(), profile = ConnectionProfile(port: server.port)
+        _ = try await session.execute(["PING"], profile: profile, password: "rill-test-secret")
+        _ = try await db.wire.execute(["CLIENT", "KILL", "TYPE", "normal", "SKIPME", "yes"])
+        try await Task.sleep(nanoseconds: 30_000_000)
+        let next = try await session.execute(["PING"], profile: profile, password: "rill-test-secret")
+        XCTAssertEqual(next.value.string, "PONG"); XCTAssertFalse(next.reusedConnection)
+        await session.close()
+    }
     func testBoundedScanPauseAndResumeKeepsConnectionUsable() async throws {
         _ = try await db.wire.pipeline((0..<650).map { [data("SET"), data("bounded:\($0)"), data("v")] })
         let session = KeyScanSession(budget: ScanBudget(results: 100, requests: 2))

@@ -7,7 +7,7 @@ struct ConsoleView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Label("每条命令使用独立连接，沿用当前 DB 与只读设置", systemImage: "point.3.connected.trianglepath.dotted")
+                Label("工作台使用独立会话，连续命令复用连接；沿用当前 DB 与只读设置", systemImage: "point.3.connected.trianglepath.dotted")
                 Spacer()
                 Button("清空显示") { model.consoleEntries = [] }.buttonStyle(.borderless).disabled(model.isConsoleRunning)
             }.font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 23).frame(height: 43)
@@ -31,9 +31,14 @@ struct ConsoleView: View {
                                         Text(entry.command).font(.system(size: 12, weight: .semibold, design: .monospaced)).textSelection(.enabled)
                                         Spacer()
                                         Text(String(format: "%.1f ms", entry.milliseconds)).font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                                            .help(entry.failed ? "失败前耗时" : "命令发送至收到完整响应的耗时")
                                         Button { copyText(entry.output); model.notify("结果已复制") } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).help("复制命令结果")
                                     }
                                     Text(entry.output).font(.system(size: 12, design: .monospaced)).foregroundStyle(entry.failed ? .red : .primary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                    if let preparation = entry.preparationMilliseconds {
+                                        Text(String(format: "%@ · 准备 %.1f ms · 命令往返 %.1f ms", entry.reusedConnection ? "复用连接" : "新建连接", preparation, entry.milliseconds))
+                                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                                    }
                                 }.padding(22).id(entry.id)
                                 Divider().padding(.horizontal, 22)
                             }

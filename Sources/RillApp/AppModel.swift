@@ -36,6 +36,8 @@ struct ConsoleEntry: Identifiable {
     let command: String
     let output: String
     let milliseconds: Double
+    var preparationMilliseconds: Double? = nil
+    var reusedConnection = false
     let failed: Bool
     let date = Date()
 }
@@ -90,6 +92,8 @@ final class AppModel: ObservableObject {
     private var visibleKeyObservers: [UUID: String] = [:]
     private var visibleKeyIDs: Set<String> { Set(visibleKeyObservers.values) }
     private var metadataDebounce: Task<Void, Never>?
+    private let consoleSession = ConsoleSession()
+    private var consoleResetTask: Task<Void, Never>?
     private var isReadingMetadata = false
     private var connectTask: Task<Void, Never>?
     private var scanTask: Task<Void, Never>?
@@ -177,6 +181,8 @@ final class AppModel: ObservableObject {
     func disconnect() { guardDraft { [weak self] in self?.reset(); self?.activeProfile = nil } }
     private func reset() {
         generation = UUID(); detailGeneration = UUID(); keyGeneration = UUID(); scanSession = nil
+        let previousReset = consoleResetTask, session = consoleSession
+        consoleResetTask = Task { await previousReset?.value; await session.close() }
         metadataDebounce?.cancel(); visibleKeyObservers = [:]; keyIndex = [:]; isReadingMetadata = false
         connectTask?.cancel(); scanTask?.cancel(); detailTask?.cancel(); database?.close(); database = nil
         keys = []; selectedKeyID = nil; detail = nil; draft = ""; scanFinished = false; totalKeys = nil; capabilityStates = []
@@ -478,7 +484,11 @@ final class AppModel: ObservableObject {
         do {
             let arguments = try CommandLine.parse(command)
             try CommandPolicy.validate(arguments, readOnly: profile.readOnly)
-            let execute: () -> Void = { [weak self] in self?.executeConsole(command, arguments: arguments, profile: profile) }
+            let token = generation
+            let execute: () -> Void = { [weak self] in
+                guard let self, self.generation == token, self.activeProfile == profile else { return }
+                self.executeConsole(command, arguments: arguments, profile: profile)
+            }
             if profile.environment == .production && !CommandPolicy.isRead(arguments) {
                 confirmation = ConfirmationRequest(title: "在生产环境执行命令？", message: command, button: "执行命令", requiredText: profile.name, action: execute)
             } else { execute() }
@@ -487,18 +497,21 @@ final class AppModel: ObservableObject {
     private func executeConsole(_ command: String, arguments: [String], profile: ConnectionProfile) {
         let token = generation; isConsoleRunning = true; consoleInput = ""; error = nil
         Task {
-            let start = Date()
+            let start = ContinuousClock.now
             do {
-                let secret = profile.id == demoID ? "" : try keychain.password(for: profile.id)
-                let console = try await RedisDatabase.connect(profile, password: secret)
-                defer { console.close() }
-                let response = try await console.wire.execute(arguments)
+                await consoleResetTask?.value
                 guard generation == token else { return }
-                consoleEntries.append(ConsoleEntry(command: command, output: String(response.pretty.prefix(100_000)) + (response.pretty.count > 100_000 ? "\n…显示已截断" : ""), milliseconds: Date().timeIntervalSince(start) * 1000, failed: false))
+                let secret = profile.id == demoID ? "" : try keychain.password(for: profile.id)
+                let result = try await consoleSession.execute(arguments, profile: profile, password: secret)
+                let rendered = result.value.pretty
+                guard generation == token else { return }
+                consoleEntries.append(ConsoleEntry(command: command, output: String(rendered.prefix(100_000)) + (rendered.count > 100_000 ? "\n…显示已截断" : ""),
+                                                   milliseconds: result.commandMilliseconds, preparationMilliseconds: result.preparationMilliseconds,
+                                                   reusedConnection: result.reusedConnection, failed: false))
                 if !CommandPolicy.isRead(arguments) { notify("命令已执行；切回数据浏览后按 ⌘R 刷新") }
             } catch {
                 guard generation == token else { return }
-                consoleEntries.append(ConsoleEntry(command: command, output: error.localizedDescription, milliseconds: Date().timeIntervalSince(start) * 1000, failed: true))
+                consoleEntries.append(ConsoleEntry(command: command, output: error.localizedDescription, milliseconds: start.duration(to: .now).rillMilliseconds, failed: true))
             }
             if consoleEntries.count > 100 { consoleEntries.removeFirst(consoleEntries.count - 100) }
             historyIndex = consoleEntries.count; isConsoleRunning = false

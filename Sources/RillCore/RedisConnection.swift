@@ -83,6 +83,9 @@ public final class RedisConnection: @unchecked Sendable {
     }
 
     public func close() { queue.async { self.fail(RedisError.message("连接已断开。")) } }
+    public func isOpen() async -> Bool {
+        await withCheckedContinuation { continuation in queue.async { continuation.resume(returning: self.ready && !self.closed) } }
+    }
     public func onDisconnect(_ handler: @escaping @Sendable (String) -> Void) {
         queue.async {
             self.disconnectHandler = handler

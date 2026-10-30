@@ -7,10 +7,10 @@ final class ScriptedRedisServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "rill.tests.scripted-server")
     private var connections: [NWConnection] = []
     private var received: [[Data]] = []
-    private let respond: @Sendable ([Data]) -> Data
+    private let respond: @Sendable ([Data]) -> Data?
     var port: Int { Int(listener.port!.rawValue) }
 
-    init(respond: @escaping @Sendable ([Data]) -> Data) throws {
+    init(respond: @escaping @Sendable ([Data]) -> Data?) throws {
         self.respond = respond
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
@@ -43,7 +43,9 @@ final class ScriptedRedisServer: @unchecked Sendable {
                 while let frame = try RESPCodec.decode(buffer) {
                     guard let items = frame.value.elements else { connection.cancel(); return }
                     let args = items.compactMap(\.data)
-                    self.received.append(args); replies.append(self.respond(args))
+                    self.received.append(args)
+                    guard let reply = self.respond(args) else { connection.cancel(); return }
+                    replies.append(reply)
                     buffer.removeFirst(frame.consumed)
                 }
                 if !replies.isEmpty { connection.send(content: replies, completion: .contentProcessed { _ in }) }
@@ -53,5 +55,6 @@ final class ScriptedRedisServer: @unchecked Sendable {
         }
     }
     func commands() -> [[String]] { queue.sync { received.map { $0.map { String(decoding: $0, as: UTF8.self) } } } }
+    func connectionCount() -> Int { queue.sync { connections.count } }
     func stop() { queue.sync { listener.cancel(); connections.forEach { $0.cancel() }; connections.removeAll() } }
 }
