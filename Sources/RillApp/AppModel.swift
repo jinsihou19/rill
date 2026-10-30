@@ -86,6 +86,11 @@ final class AppModel: ObservableObject {
     @Published var capabilityStates: [RedisCapability] = []
     @Published var serverInfo: [String: String] = [:]
     @Published var slowQueries: [SlowQuery] = []
+    @Published var savedSearches: [SavedKeySearch] = []
+    @Published var historySearch = ""
+    @Published var consoleHistory = CommandHistory()
+    private var histories: [String: CommandHistory] = [:]
+    private var historyDraft = ""
     @Published var consoleInput = ""
     @Published var consoleEntries: [ConsoleEntry] = []
     @Published var error: String?
@@ -171,6 +176,10 @@ final class AppModel: ObservableObject {
     private func startConnection(_ profile: ConnectionProfile) {
         reset(); activeProfile = profile; isConnecting = true; error = nil
         let preferences = browserPreferences.load(profile)
+        searchMode = preferences.searchMode; search = preferences.search; typeFilter = preferences.kind
+        valueCodec = preferences.codec; valueFormat = preferences.format
+        showKeyTypes = preferences.showTypes; showKeyTTL = preferences.showTTL; savedSearches = preferences.searches
+        consoleHistory = histories[workspaceID(profile)] ?? CommandHistory(); historyIndex = consoleHistory.commands.count; historySearch = ""
         namespaceSeparator = preferences.separator; grouped = preferences.grouped; namespaceExpansion = preferences.expansion
         let token = generation
         connectTask = Task { [self] in
@@ -186,7 +195,7 @@ final class AppModel: ObservableObject {
                         self.connectionLost = true; self.error = reason
                     }
                 }
-                loadKeys(reset: true)
+                loadKeys(reset: true, focusKey: preferences.selectedKey)
                 if tab == .overview { loadDiagnostics() }
                 if tab == .slowlog { loadSlowQueries() }
             } catch {
@@ -272,6 +281,7 @@ final class AppModel: ObservableObject {
                     }
                     else { selectedKeyID = nil; detail = nil; clearValue() }
                 }
+                saveBrowserPreferences()
             } catch {
                 guard token == generation, keyToken == keyGeneration else { return }
                 isLoadingKeys = false; isStoppingScan = false; presentError(error)
@@ -363,10 +373,31 @@ final class AppModel: ObservableObject {
     func setNamespaceExpanded(_ id: String, expanded: Bool) {
         namespaceExpansion[id] = expanded; saveBrowserPreferences()
     }
+    private func workspaceID(_ profile: ConnectionProfile) -> String { "\(profile.id.uuidString)/\(profile.database)" }
     func saveBrowserPreferences() {
-        guard let profile = activeProfile, profile.id != demoID else { return }
-        browserPreferences.save(BrowserPreferences(separator: namespaceSeparator, grouped: grouped, expansion: namespaceExpansion), for: profile)
+        guard let profile = activeProfile, profile.id != demoID, connected else { return }
+        var value = BrowserPreferences()
+        value.separator = namespaceSeparator; value.grouped = grouped; value.expansion = namespaceExpansion
+        if scanQuery.text.utf8.count <= 4096 { value.searchMode = scanQuery.mode; value.search = scanQuery.text; value.kind = scanQuery.kind }
+        if let key = detail?.key.bytes, key.count <= 4096 { value.selectedKey = key }
+        value.codec = valueCodec; value.format = valueFormat; value.showTypes = showKeyTypes; value.showTTL = showKeyTTL
+        value.searches = savedSearches
+        browserPreferences.save(value, for: profile)
     }
+    func saveSearch() {
+        guard search.utf8.count <= 4096 else { error = "保存的搜索不能超过 4096 字节。"; return }
+        let value = SavedKeySearch(mode: searchMode, text: search, kind: typeFilter)
+        savedSearches.removeAll { $0.mode == value.mode && $0.text == value.text && $0.kind == value.kind }
+        savedSearches.insert(value, at: 0); savedSearches = Array(savedSearches.prefix(20)); saveBrowserPreferences()
+    }
+    func restoreSearch(_ value: SavedKeySearch) {
+        guardDraft { [weak self] in
+            guard let self else { return }
+            self.searchMode = value.mode; self.search = value.text; self.typeFilter = value.kind
+            self.loadKeys(reset: true, preserveSelection: false)
+        }
+    }
+    func removeSearch(_ id: UUID) { savedSearches.removeAll { $0.id == id }; saveBrowserPreferences() }
     func searchNamespace(_ node: KeyNamespaceNode) {
         guard let pattern = String(data: RedisGlob.escapedPrefix(node.bytes), encoding: .utf8) else { return }
         guardDraft { [weak self] in
@@ -394,7 +425,7 @@ final class AppModel: ObservableObject {
                 let page = try await db.inspect(key.bytes)
                 let states = await db.capabilities.snapshot()
                 guard token == generation, detailToken == detailGeneration else { return }
-                detail = page; prepareValue(page, autoFormat: changingKey)
+                detail = page; prepareValue(page, autoFormat: changingKey); saveBrowserPreferences()
                 capabilityStates = states
                 isLoadingDetail = false
             } catch {
@@ -473,7 +504,7 @@ final class AppModel: ObservableObject {
                 guard revision == valueGeneration, !worker.isCancelled else { return }
                 valueDecodeError = error.localizedDescription; valueFormat = "Hex"
             }
-            isPreparingValue = false; refreshValuePresentation()
+            isPreparingValue = false; refreshValuePresentation(); saveBrowserPreferences()
         }
     }
     func chooseValueCodec(_ codec: ValueCodec) {
@@ -613,6 +644,8 @@ final class AppModel: ObservableObject {
     }
     private func executeConsole(_ command: String, arguments: [String], profile: ConnectionProfile) {
         let token = generation; isConsoleRunning = true; consoleInput = ""; error = nil
+        consoleHistory.record(command); histories[workspaceID(profile)] = consoleHistory
+        historyIndex = consoleHistory.commands.count; historyDraft = ""
         Task {
             let start = ContinuousClock.now
             do {
@@ -631,14 +664,17 @@ final class AppModel: ObservableObject {
                 consoleEntries.append(ConsoleEntry(command: command, output: error.localizedDescription, milliseconds: start.duration(to: .now).rillMilliseconds, failed: true))
             }
             if consoleEntries.count > 100 { consoleEntries.removeFirst(consoleEntries.count - 100) }
-            historyIndex = consoleEntries.count; isConsoleRunning = false
+            isConsoleRunning = false
         }
     }
     func navigateHistory(_ delta: Int) {
-        guard !consoleEntries.isEmpty else { return }
-        historyIndex = min(max(0, historyIndex + delta), consoleEntries.count)
-        consoleInput = historyIndex < consoleEntries.count ? consoleEntries[historyIndex].command : ""
+        let commands = consoleHistory.commands
+        guard !commands.isEmpty else { return }
+        if historyIndex == commands.count { historyDraft = consoleInput }
+        historyIndex = min(max(0, historyIndex + delta), commands.count)
+        consoleInput = historyIndex < commands.count ? commands[historyIndex] : historyDraft
     }
+    func recallCommand(_ command: String) { consoleInput = command; historyIndex = consoleHistory.commands.count; historyDraft = command }
     func loadDiagnostics() {
         guard let db = database, !diagnosticsLoading else { return }
         let token = generation; diagnosticsLoading = true

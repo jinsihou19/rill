@@ -29,10 +29,15 @@ struct VerifyStorage {
         defer { defaults.removePersistentDomain(forName: suite) }
         let browser = BrowserPreferencesStore(defaults: defaults)
         var preferences = BrowserPreferences(); preferences.separator = "::"; preferences.expansion["folder:test"] = false
+        preferences.searchMode = .hex; preferences.search = "00 FF"; preferences.kind = "string"
+        preferences.selectedKey = Data([0, 255]); preferences.codec = .base64Gzip; preferences.format = "JSON"
+        preferences.searches = [SavedKeySearch(mode: .exact, text: " literal * key ", kind: "")]
+        let legacy = try JSONDecoder().decode(BrowserPreferences.self, from: Data(#"{"separator":"/","grouped":false,"expansion":{}}"#.utf8))
+        precondition(legacy.separator == "/" && legacy.searchMode == .pattern && legacy.searches.isEmpty)
         browser.save(preferences, for: list[0]); precondition(browser.load(list[0]) == preferences)
         var otherDB = list[0]; otherDB.database = 1
         precondition(browser.load(otherDB) == BrowserPreferences())
         precondition(browser.load(list[1]) == BrowserPreferences())
-        print("PASS: profile round trip, 0600 permissions, no password in JSON; native Keychain CRUD; browser preferences isolated by connection and DB.")
+        print("PASS: profile round trip, 0600 permissions, no password in JSON; native Keychain CRUD; browser search/selection/codec preferences isolated by connection and DB, legacy decoding.")
     }
 }

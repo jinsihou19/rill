@@ -21,7 +21,7 @@ struct KeyBrowserRow: View {
             }
             Spacer(minLength: 0)
             if model.isFavorite(key) { Image(systemName: "star.fill").font(.system(size: 8)).foregroundStyle(.orange) }
-        }.padding(.vertical, 6).help(DataPresentation.previewKey(key.bytes))
+        }.padding(.vertical, 6).id(key.id).help(DataPresentation.previewKey(key.bytes))
         .background(RowVisibility(identity: key.id + revision.uuidString) { visible, observer in
             if visible { model.keyAppeared(key.id, revision: revision, observer: observer) }
             else { model.keyDisappeared(key.id, revision: revision, observer: observer) }

@@ -4,6 +4,7 @@ import RillCore
 struct ConsoleView: View {
     @EnvironmentObject private var model: AppModel
     @FocusState private var focused: Bool
+    @State private var helpExpanded = true
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -50,12 +51,26 @@ struct ConsoleView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 7) {
                     ForEach(suggestions, id: \.self) { suggestion in
-                        Button(suggestion) { model.consoleInput = suggestion + " "; focused = true }
+                        Button(suggestion) { model.consoleInput = CommandGuide.completingName(model.consoleInput, with: suggestion); focused = true }
                             .font(.system(size: 10, design: .monospaced)).buttonStyle(.borderless).padding(.horizontal, 6).padding(.vertical, 4)
                             .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 4))
                     }
                     Spacer()
-                    Text("历史仅保存在本次会话").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    Menu("历史") {
+                        ForEach(model.consoleHistory.matching(model.historySearch), id: \.self) { command in
+                            Button(String(command.prefix(100))) { model.recallCommand(command); focused = true }
+                        }
+                    }.fixedSize()
+                    TextField("搜索历史", text: $model.historySearch).textFieldStyle(.roundedBorder).frame(width: 110)
+                        .help("按当前连接和 DB 筛选内存历史；选中只填入，不执行")
+                }
+                if let guide = CommandGuide.lookup(model.consoleInput) {
+                    DisclosureGroup("参数帮助 · 离线", isExpanded: $helpExpanded) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(guide.syntax).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                            Text(guide.note).font(.system(size: 11)).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 5)
+                    }.font(.system(size: 10)).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 12) {
                     Text("DB \(model.activeProfile?.database ?? 0) ❯").font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(RillTheme.accent)

@@ -181,6 +181,18 @@ struct WorkspaceView: View {
                                 }
                             } label: { Image(systemName: "bookmark") }.menuIndicator(.hidden).help("直接打开当前数据库的收藏键").disabled(model.busy)
                         }
+                        Menu {
+                            Button("保存当前搜索") { model.saveSearch() }
+                            if !model.savedSearches.isEmpty {
+                                Divider()
+                                ForEach(model.savedSearches) { value in
+                                    Button(value.label) { model.restoreSearch(value) }
+                                }
+                                Menu("删除保存的搜索") {
+                                    ForEach(model.savedSearches) { value in Button(value.label) { model.removeSearch(value.id) } }
+                                }
+                            }
+                        } label: { Image(systemName: "text.badge.star") }.menuIndicator(.hidden).help("此连接与 DB 的保存搜索").disabled(!model.canSearch)
                         Button { model.grouped.toggle() } label: { Image(systemName: model.grouped ? "folder" : "list.bullet") }.help("切换前缀分组与列表")
                             .contextMenu { Button("设置命名空间分隔符…") { separatorDraft = model.namespaceSeparator; showSeparatorEditor = true } }
                         Menu {
@@ -191,8 +203,8 @@ struct WorkspaceView: View {
                 }.padding(14)
                     .onChange(of: model.grouped) { _, _ in model.saveBrowserPreferences(); model.rebuildNamespaces() }
                     .onChange(of: model.favoritesOnly) { _, _ in model.rebuildNamespaces() }
-                    .onChange(of: model.showKeyTypes) { _, _ in model.requestVisibleMetadata() }
-                    .onChange(of: model.showKeyTTL) { _, _ in model.requestVisibleMetadata() }
+                    .onChange(of: model.showKeyTypes) { _, _ in model.requestVisibleMetadata(); model.saveBrowserPreferences() }
+                    .onChange(of: model.showKeyTTL) { _, _ in model.requestVisibleMetadata(); model.saveBrowserPreferences() }
                 Divider()
                 keyList
                 Divider()
@@ -224,6 +236,7 @@ struct WorkspaceView: View {
                     if !model.scanFinished { Text(model.isStoppingScan ? "正在停止；等待本次响应" : "扫描尚未结束，可继续查找").font(.caption2).foregroundStyle(.secondary); Button("继续扫描") { model.loadKeys(reset: false) }.disabled(model.busy) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                ScrollViewReader { proxy in
                 List(selection: Binding(get: { selectedTreeItem ?? model.selectedKeyID }, set: { id in
                     DispatchQueue.main.async {
                         if let id, id.hasPrefix("folder:") { selectedTreeItem = id }
@@ -234,6 +247,9 @@ struct WorkspaceView: View {
                         ForEach(model.namespaceTree.roots) { KeyNamespaceBranch(node: $0) }
                     } else { ForEach(model.visibleKeys) { key in KeyBrowserRow(key: key).tag(key.id) } }
                 }.listStyle(.inset).scrollContentBackground(.hidden).disabled(model.isWriting)
+                    .onChange(of: model.selectedKeyID) { _, id in if let id { proxy.scrollTo(id, anchor: .center) } }
+                    .onChange(of: model.isBuildingNamespaces) { _, building in if !building, let id = model.selectedKeyID { proxy.scrollTo(id, anchor: .center) } }
+                }
             }
         }
     }

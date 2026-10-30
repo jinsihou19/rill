@@ -64,6 +64,32 @@ struct BrowserPreferences: Codable, Equatable {
     var separator = ":"
     var grouped = true
     var expansion: [String: Bool] = [:]
+    var searchMode: KeySearchMode = .pattern
+    var search = ""
+    var kind = ""
+    var selectedKey: Data?
+    var codec: ValueCodec = .raw
+    var format = "文本"
+    var showTypes = true
+    var showTTL = true
+    var searches: [SavedKeySearch] = []
+    init() {}
+    private enum CodingKeys: String, CodingKey { case separator, grouped, expansion, searchMode, search, kind, selectedKey, codec, format, showTypes, showTTL, searches }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        separator = try c.decodeIfPresent(String.self, forKey: .separator) ?? ":"
+        grouped = try c.decodeIfPresent(Bool.self, forKey: .grouped) ?? true
+        expansion = try c.decodeIfPresent([String: Bool].self, forKey: .expansion) ?? [:]
+        searchMode = try c.decodeIfPresent(KeySearchMode.self, forKey: .searchMode) ?? .pattern
+        search = try c.decodeIfPresent(String.self, forKey: .search) ?? ""
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        selectedKey = try c.decodeIfPresent(Data.self, forKey: .selectedKey)
+        codec = try c.decodeIfPresent(ValueCodec.self, forKey: .codec) ?? .raw
+        format = try c.decodeIfPresent(String.self, forKey: .format) ?? "文本"
+        showTypes = try c.decodeIfPresent(Bool.self, forKey: .showTypes) ?? true
+        showTTL = try c.decodeIfPresent(Bool.self, forKey: .showTTL) ?? true
+        searches = Array((try c.decodeIfPresent([SavedKeySearch].self, forKey: .searches) ?? []).prefix(20))
+    }
 }
 
 struct BrowserPreferencesStore {

@@ -122,7 +122,7 @@ struct KeyDetailView: View {
             if let failure = model.valueEncodeError { Text(failure).font(.system(size: 11)).foregroundStyle(.orange).padding(8) }
         }
         .onChange(of: model.draft) { model.refreshValuePresentation() }
-        .onChange(of: model.valueFormat) { model.refreshValuePresentation() }
+        .onChange(of: model.valueFormat) { model.refreshValuePresentation(); model.saveBrowserPreferences() }
     }
 
     private func collectionEditor(_ page: KeyPage) -> some View {
