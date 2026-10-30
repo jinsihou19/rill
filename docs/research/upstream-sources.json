@@ -1,0 +1,779 @@
+{
+  "researched_on": "2026-10-30",
+  "timezone": "Asia/Taipei",
+  "rill_baseline_commit": "b3bf2283ef96f6771c60f0f96fabea1c21a9c793",
+  "rill_baseline_tag": "v0.1.0",
+  "method": "Pinned-source static call-path review; GitNexus used only for navigation on Tiny RDM and ARDM. No upstream applications or benchmarks run.",
+  "application_code_changes": false,
+  "repositories": [
+    {
+      "alias": "ardm",
+      "repository": "qishibo/AnotherRedisDesktopManager",
+      "url": "https://github.com/qishibo/AnotherRedisDesktopManager",
+      "commit": "c149855106628babcdfb7675a8e7ba9434d2492a",
+      "branch_at_fetch": "master",
+      "commit_committer_date": "2026-08-20T20:35:10+08:00",
+      "role": "primary_project",
+      "declared_license": "MIT",
+      "license_source_url": "https://github.com/qishibo/AnotherRedisDesktopManager/blob/c149855106628babcdfb7675a8e7ba9434d2492a/LICENSE",
+      "reviewed_evidence": [
+        "A01",
+        "A02",
+        "A03",
+        "A04",
+        "A05",
+        "A06",
+        "A07"
+      ]
+    },
+    {
+      "alias": "tiny-rdm",
+      "repository": "tiny-craft/tiny-rdm",
+      "url": "https://github.com/tiny-craft/tiny-rdm",
+      "commit": "4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc",
+      "branch_at_fetch": "main",
+      "commit_committer_date": "2026-07-12T22:23:00+08:00",
+      "role": "primary_project",
+      "declared_license": "GPL-3.0",
+      "license_source_url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/LICENSE",
+      "reviewed_evidence": [
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "T06",
+        "T07",
+        "T08",
+        "T09",
+        "T10"
+      ]
+    },
+    {
+      "alias": "medis",
+      "repository": "luin/medis",
+      "url": "https://github.com/luin/medis",
+      "commit": "12c87a5a2cc3fd7fa616beb2eaed79413538769a",
+      "branch_at_fetch": "master",
+      "commit_committer_date": "2024-02-21T13:21:54+08:00",
+      "role": "primary_project",
+      "declared_license": "MIT",
+      "license_source_url": "https://github.com/luin/medis/blob/12c87a5a2cc3fd7fa616beb2eaed79413538769a/LICENSE",
+      "reviewed_evidence": [
+        "M01",
+        "M02",
+        "M03",
+        "M04",
+        "M05",
+        "M06"
+      ]
+    },
+    {
+      "alias": "redisinsight",
+      "repository": "redis/RedisInsight",
+      "url": "https://github.com/redis/RedisInsight",
+      "commit": "43bd288ed30dc6d2355723158dad5d7ecf4a280e",
+      "branch_at_fetch": "main",
+      "commit_committer_date": "2026-09-29T14:21:48+03:00",
+      "role": "primary_project",
+      "declared_license": "SSPL-1.0",
+      "license_source_url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/LICENSE",
+      "reviewed_evidence": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I05",
+        "I06",
+        "I07",
+        "I08",
+        "I09",
+        "I10",
+        "I11",
+        "I12",
+        "I13",
+        "I14",
+        "I15",
+        "I16",
+        "I17"
+      ]
+    },
+    {
+      "alias": "redis-commander",
+      "repository": "joeferner/redis-commander",
+      "url": "https://github.com/joeferner/redis-commander",
+      "commit": "2a222de65ed15832d4d4adfbbce564539b80115f",
+      "branch_at_fetch": "master",
+      "commit_committer_date": "2025-09-11T12:27:43-04:00",
+      "role": "primary_project",
+      "declared_license": "MIT",
+      "license_source_url": "https://github.com/joeferner/redis-commander/blob/2a222de65ed15832d4d4adfbbce564539b80115f/LICENSE",
+      "reviewed_evidence": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06"
+      ]
+    },
+    {
+      "alias": "phpredisadmin",
+      "repository": "erikdubbelboer/phpRedisAdmin",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin",
+      "commit": "44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019",
+      "branch_at_fetch": "master",
+      "commit_committer_date": "2026-10-24T06:09:53+02:00",
+      "role": "primary_project",
+      "declared_license": "README 声明 CC BY 3.0；Redis glob 匹配器另有许可证",
+      "license_source_url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/README.markdown",
+      "reviewed_evidence": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09"
+      ]
+    },
+    {
+      "alias": "p3x",
+      "repository": "patrikx3/redis-ui",
+      "url": "https://github.com/patrikx3/redis-ui",
+      "commit": "ffd81b2e118d980792d4b9399d64b2086188980b",
+      "branch_at_fetch": "main",
+      "commit_committer_date": "2026-09-02T08:53:01+02:00",
+      "role": "primary_project",
+      "declared_license": "MIT",
+      "license_source_url": "https://github.com/patrikx3/redis-ui/blob/ffd81b2e118d980792d4b9399d64b2086188980b/LICENSE",
+      "reviewed_evidence": [
+        "X01"
+      ]
+    },
+    {
+      "alias": "p3x-server",
+      "repository": "patrikx3/redis-ui-server",
+      "url": "https://github.com/patrikx3/redis-ui-server",
+      "commit": "b587f8610eec5112961b87dc55605916f4c8a0f6",
+      "branch_at_fetch": "main",
+      "commit_committer_date": "2026-09-02T08:28:12+02:00",
+      "role": "supporting_source",
+      "declared_license": "MIT（LICENSE 标题为 P3X Redis UI License）",
+      "license_source_url": "https://github.com/patrikx3/redis-ui-server/blob/b587f8610eec5112961b87dc55605916f4c8a0f6/LICENSE",
+      "reviewed_evidence": [
+        "X02",
+        "X04",
+        "X05",
+        "X06",
+        "X07",
+        "X08",
+        "X09",
+        "X10"
+      ]
+    },
+    {
+      "alias": "p3x-material",
+      "repository": "patrikx3/redis-ui-material",
+      "url": "https://github.com/patrikx3/redis-ui-material",
+      "commit": "2bba5db1dd6d5256b7694662527b5693cc48bb9b",
+      "branch_at_fetch": "main",
+      "commit_committer_date": "2026-09-02T08:53:05+02:00",
+      "role": "supporting_source",
+      "declared_license": "MIT",
+      "license_source_url": "https://github.com/patrikx3/redis-ui-material/blob/2bba5db1dd6d5256b7694662527b5693cc48bb9b/LICENSE",
+      "reviewed_evidence": [
+        "X03"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "T01",
+      "repository": "tiny-rdm",
+      "path": "backend/services/browser_service.go",
+      "start_line": 480,
+      "end_line": 605,
+      "purpose": "scanKeys / existsKey / LoadNextKeys：扫描预算与精确查找",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/backend/services/browser_service.go#L480-L605"
+    },
+    {
+      "id": "T02",
+      "repository": "tiny-rdm",
+      "path": "backend/services/browser_service.go",
+      "start_line": 309,
+      "end_line": 362,
+      "purpose": "getRedisClient：连接缓存及切换 DB 重建",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/backend/services/browser_service.go#L309-L362"
+    },
+    {
+      "id": "T03",
+      "repository": "tiny-rdm",
+      "path": "backend/services/cli_service.go",
+      "start_line": 90,
+      "end_line": 163,
+      "purpose": "独立 CLI 客户端缓存和关闭",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/backend/services/cli_service.go#L90-L163"
+    },
+    {
+      "id": "T04",
+      "repository": "tiny-rdm",
+      "path": "backend/services/browser_service.go",
+      "start_line": 713,
+      "end_line": 855,
+      "purpose": "摘要与详情分离、成员游标状态",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/backend/services/browser_service.go#L713-L855"
+    },
+    {
+      "id": "T05",
+      "repository": "tiny-rdm",
+      "path": "backend/services/browser_service.go",
+      "start_line": 1146,
+      "end_line": 1212,
+      "purpose": "Stream 倒序分页与全量过滤分支",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/backend/services/browser_service.go#L1146-L1212"
+    },
+    {
+      "id": "T06",
+      "repository": "tiny-rdm",
+      "path": "backend/utils/convert/convert.go",
+      "start_line": 35,
+      "end_line": 85,
+      "purpose": "格式化与解码职责",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/backend/utils/convert/convert.go#L35-L85"
+    },
+    {
+      "id": "T07",
+      "repository": "tiny-rdm",
+      "path": "backend/utils/convert/convert.go",
+      "start_line": 235,
+      "end_line": 265,
+      "purpose": "SaveAs：保存时重新编码",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/backend/utils/convert/convert.go#L235-L265"
+    },
+    {
+      "id": "T08",
+      "repository": "tiny-rdm",
+      "path": "backend/services/connection_service.go",
+      "start_line": 85,
+      "end_line": 167,
+      "purpose": "SSH / TLS / timeout 组合与边界",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/backend/services/connection_service.go#L85-L167"
+    },
+    {
+      "id": "T09",
+      "repository": "tiny-rdm",
+      "path": "backend/services/browser_service.go",
+      "start_line": 1251,
+      "end_line": 1290,
+      "purpose": "SetKeyValue：读 TTL 后分别写值与过期时间",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/backend/services/browser_service.go#L1251-L1290"
+    },
+    {
+      "id": "T10",
+      "repository": "tiny-rdm",
+      "path": "frontend/src/stores/browser.js",
+      "start_line": 527,
+      "end_line": 576,
+      "purpose": "详情解码选项与历史",
+      "url": "https://github.com/tiny-craft/tiny-rdm/blob/4ddb94a3c55f3401dbc66870f0d21cf0d6203cbc/frontend/src/stores/browser.js#L527-L576"
+    },
+    {
+      "id": "A01",
+      "repository": "ardm",
+      "path": "src/components/KeyList.vue",
+      "start_line": 112,
+      "end_line": 254,
+      "purpose": "扫描暂停恢复、每个主节点的 scanBufferStream、精确查找",
+      "url": "https://github.com/qishibo/AnotherRedisDesktopManager/blob/c149855106628babcdfb7675a8e7ba9434d2492a/src/components/KeyList.vue#L112-L254"
+    },
+    {
+      "id": "A02",
+      "repository": "ardm",
+      "path": "src/util.js",
+      "start_line": 240,
+      "end_line": 322,
+      "purpose": "keysToTree：文件夹与键分离、原始 Buffer、排序",
+      "url": "https://github.com/qishibo/AnotherRedisDesktopManager/blob/c149855106628babcdfb7675a8e7ba9434d2492a/src/util.js#L240-L322"
+    },
+    {
+      "id": "A03",
+      "repository": "ardm",
+      "path": "src/components/KeyListVirtualTree.vue",
+      "start_line": 24,
+      "end_line": 54,
+      "purpose": "虚拟树与展开状态",
+      "url": "https://github.com/qishibo/AnotherRedisDesktopManager/blob/c149855106628babcdfb7675a8e7ba9434d2492a/src/components/KeyListVirtualTree.vue#L24-L54"
+    },
+    {
+      "id": "A04",
+      "repository": "ardm",
+      "path": "src/components/KeyListVirtualTree.vue",
+      "start_line": 391,
+      "end_line": 418,
+      "purpose": "树节点上限与明确提示",
+      "url": "https://github.com/qishibo/AnotherRedisDesktopManager/blob/c149855106628babcdfb7675a8e7ba9434d2492a/src/components/KeyListVirtualTree.vue#L391-L418"
+    },
+    {
+      "id": "A05",
+      "repository": "ardm",
+      "path": "src/components/FormatViewer.vue",
+      "start_line": 61,
+      "end_line": 119,
+      "purpose": "Viewer 注册、二进制输入和超大值阈值",
+      "url": "https://github.com/qishibo/AnotherRedisDesktopManager/blob/c149855106628babcdfb7675a8e7ba9434d2492a/src/components/FormatViewer.vue#L61-L119"
+    },
+    {
+      "id": "A06",
+      "repository": "ardm",
+      "path": "src/redisClient.js",
+      "start_line": 90,
+      "end_line": 163,
+      "purpose": "SSH 下的 Sentinel / Cluster 地址映射",
+      "url": "https://github.com/qishibo/AnotherRedisDesktopManager/blob/c149855106628babcdfb7675a8e7ba9434d2492a/src/redisClient.js#L90-L163"
+    },
+    {
+      "id": "A07",
+      "repository": "ardm",
+      "path": "src/redisClient.js",
+      "start_line": 9,
+      "end_line": 48,
+      "purpose": "命令拦截、耗时记录和 Hash 二进制回复转换",
+      "url": "https://github.com/qishibo/AnotherRedisDesktopManager/blob/c149855106628babcdfb7675a8e7ba9434d2492a/src/redisClient.js#L9-L48"
+    },
+    {
+      "id": "M01",
+      "repository": "medis",
+      "path": "src/renderer/windows/MainWindow/InstanceContent/DatabaseContainer/KeyBrowser/KeyList/index.jsx",
+      "start_line": 57,
+      "end_line": 165,
+      "purpose": "精确键优先、扫描预算、自适应 COUNT、过期结果忽略",
+      "url": "https://github.com/luin/medis/blob/12c87a5a2cc3fd7fa616beb2eaed79413538769a/src/renderer/windows/MainWindow/InstanceContent/DatabaseContainer/KeyBrowser/KeyList/index.jsx#L57-L165"
+    },
+    {
+      "id": "M02",
+      "repository": "medis",
+      "path": "src/renderer/windows/MainWindow/InstanceContent/DatabaseContainer/KeyBrowser/KeyList/index.jsx",
+      "start_line": 365,
+      "end_line": 410,
+      "purpose": "虚拟表格、键盘和行编辑",
+      "url": "https://github.com/luin/medis/blob/12c87a5a2cc3fd7fa616beb2eaed79413538769a/src/renderer/windows/MainWindow/InstanceContent/DatabaseContainer/KeyBrowser/KeyList/index.jsx#L365-L410"
+    },
+    {
+      "id": "M03",
+      "repository": "medis",
+      "path": "src/renderer/windows/MainWindow/InstanceContent/DatabaseContainer/Content/KeyContent/BaseContent/Editor/index.jsx",
+      "start_line": 74,
+      "end_line": 117,
+      "purpose": "编辑器格式与保存确认",
+      "url": "https://github.com/luin/medis/blob/12c87a5a2cc3fd7fa616beb2eaed79413538769a/src/renderer/windows/MainWindow/InstanceContent/DatabaseContainer/Content/KeyContent/BaseContent/Editor/index.jsx#L74-L117"
+    },
+    {
+      "id": "M04",
+      "repository": "medis",
+      "path": "src/renderer/windows/MainWindow/InstanceContent/DatabaseContainer/Content/Terminal/index.jsx",
+      "start_line": 43,
+      "end_line": 139,
+      "purpose": "补全、结果上限和专用监听连接",
+      "url": "https://github.com/luin/medis/blob/12c87a5a2cc3fd7fa616beb2eaed79413538769a/src/renderer/windows/MainWindow/InstanceContent/DatabaseContainer/Content/Terminal/index.jsx#L43-L139"
+    },
+    {
+      "id": "M05",
+      "repository": "medis",
+      "path": "src/renderer/storage/Patterns.js",
+      "start_line": 1,
+      "end_line": 14,
+      "purpose": "保存搜索模式",
+      "url": "https://github.com/luin/medis/blob/12c87a5a2cc3fd7fa616beb2eaed79413538769a/src/renderer/storage/Patterns.js#L1-L14"
+    },
+    {
+      "id": "M06",
+      "repository": "medis",
+      "path": "src/renderer/redux/actions/connection.js",
+      "start_line": 71,
+      "end_line": 96,
+      "purpose": "TLS 边界与保留 TTL 的 Lua 命令",
+      "url": "https://github.com/luin/medis/blob/12c87a5a2cc3fd7fa616beb2eaed79413538769a/src/renderer/redux/actions/connection.js#L71-L96"
+    },
+    {
+      "id": "I01",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/browser/keys/scanner/strategies/standalone.scanner.strategy.ts",
+      "start_line": 82,
+      "end_line": 183,
+      "purpose": "独立扫描预算、精确键、可选元数据",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/browser/keys/scanner/strategies/standalone.scanner.strategy.ts#L82-L183"
+    },
+    {
+      "id": "I02",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/browser/keys/scanner/strategies/cluster.scanner.strategy.ts",
+      "start_line": 29,
+      "end_line": 184,
+      "purpose": "集群每个主节点独立游标",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/browser/keys/scanner/strategies/cluster.scanner.strategy.ts#L29-L184"
+    },
+    {
+      "id": "I03",
+      "repository": "redisinsight",
+      "path": "redisinsight/ui/src/pages/browser/components/key-list/KeyList.tsx",
+      "start_line": 338,
+      "end_line": 423,
+      "purpose": "可见行格式化、元数据请求与非连续结果合并",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/ui/src/pages/browser/components/key-list/KeyList.tsx#L338-L423"
+    },
+    {
+      "id": "I04",
+      "repository": "redisinsight",
+      "path": "redisinsight/ui/src/slices/browser/keys.ts",
+      "start_line": 649,
+      "end_line": 690,
+      "purpose": "取消旧扫描、keysInfo=false",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/ui/src/slices/browser/keys.ts#L649-L690"
+    },
+    {
+      "id": "I05",
+      "repository": "redisinsight",
+      "path": "redisinsight/ui/src/slices/browser/keys.ts",
+      "start_line": 1249,
+      "end_line": 1281,
+      "purpose": "根据可见列请求 TTL / 大小",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/ui/src/slices/browser/keys.ts#L1249-L1281"
+    },
+    {
+      "id": "I06",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/database/providers/database.client.factory.ts",
+      "start_line": 47,
+      "end_line": 120,
+      "purpose": "连接创建合并与复用",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/database/providers/database.client.factory.ts#L47-L120"
+    },
+    {
+      "id": "I07",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/redis/redis.client.storage.ts",
+      "start_line": 38,
+      "end_line": 94,
+      "purpose": "空闲回收、连接健康和最近使用时间",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/redis/redis.client.storage.ts#L38-L94"
+    },
+    {
+      "id": "I08",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/cli/services/cli-business/cli-business.service.ts",
+      "start_line": 72,
+      "end_line": 123,
+      "purpose": "CLI UUID 与独立会话",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/cli/services/cli-business/cli-business.service.ts#L72-L123"
+    },
+    {
+      "id": "I09",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/workbench/workbench.service.ts",
+      "start_line": 40,
+      "end_line": 117,
+      "purpose": "执行记录、状态与单调时钟耗时",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/workbench/workbench.service.ts#L40-L117"
+    },
+    {
+      "id": "I10",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/workbench/workbench.service.ts",
+      "start_line": 158,
+      "end_line": 197,
+      "purpose": "批量执行与 Promise.all 的取舍",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/workbench/workbench.service.ts#L158-L197"
+    },
+    {
+      "id": "I11",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/commands/commands-json.provider.ts",
+      "start_line": 46,
+      "end_line": 87,
+      "purpose": "命令文档缓存与离线默认数据",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/commands/commands-json.provider.ts#L46-L87"
+    },
+    {
+      "id": "I12",
+      "repository": "redisinsight",
+      "path": "redisinsight/ui/src/components/cli/components/cli-input/CliAutocomplete/CliAutocomplete.tsx",
+      "start_line": 14,
+      "end_line": 67,
+      "purpose": "参数上下文补全",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/ui/src/components/cli/components/cli-input/CliAutocomplete/CliAutocomplete.tsx#L14-L67"
+    },
+    {
+      "id": "I13",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/profiler/models/profiler.client.ts",
+      "start_line": 25,
+      "end_line": 62,
+      "purpose": "Profiler 消息聚合窗口",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/profiler/models/profiler.client.ts#L25-L62"
+    },
+    {
+      "id": "I14",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/profiler/models/redis.observer.ts",
+      "start_line": 60,
+      "end_line": 167,
+      "purpose": "按节点监听、取消订阅和连接释放",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/profiler/models/redis.observer.ts#L60-L167"
+    },
+    {
+      "id": "I15",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/slow-log/slow-log.service.ts",
+      "start_line": 39,
+      "end_line": 139,
+      "purpose": "慢查询来源、时间单位和服务端阈值",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/slow-log/slow-log.service.ts#L39-L139"
+    },
+    {
+      "id": "I16",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/browser/string/string.service.ts",
+      "start_line": 73,
+      "end_line": 155,
+      "purpose": "GETRANGE、下载路径与非原子 TTL 恢复",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/browser/string/string.service.ts#L73-L155"
+    },
+    {
+      "id": "I17",
+      "repository": "redisinsight",
+      "path": "redisinsight/api/src/modules/browser/keys/scanner/strategies/standalone.scanner.strategy.ts",
+      "start_line": 31,
+      "end_line": 79,
+      "purpose": "元数据单项错误降级",
+      "url": "https://github.com/redis/RedisInsight/blob/43bd288ed30dc6d2355723158dad5d7ecf4a280e/redisinsight/api/src/modules/browser/keys/scanner/strategies/standalone.scanner.strategy.ts#L31-L79"
+    },
+    {
+      "id": "C01",
+      "repository": "redis-commander",
+      "path": "lib/connections.js",
+      "start_line": 299,
+      "end_line": 320,
+      "purpose": "COMMAND 动态只读列表与回退",
+      "url": "https://github.com/joeferner/redis-commander/blob/2a222de65ed15832d4d4adfbbce564539b80115f/lib/connections.js#L299-L320"
+    },
+    {
+      "id": "C02",
+      "repository": "redis-commander",
+      "path": "lib/routes/apiv1.js",
+      "start_line": 326,
+      "end_line": 381,
+      "purpose": "执行入口只读检查及不支持的会话命令",
+      "url": "https://github.com/joeferner/redis-commander/blob/2a222de65ed15832d4d4adfbbce564539b80115f/lib/routes/apiv1.js#L326-L381"
+    },
+    {
+      "id": "C03",
+      "repository": "redis-commander",
+      "path": "lib/redisCommands/redisCore.js",
+      "start_line": 5,
+      "end_line": 23,
+      "purpose": "静态回退表中的 BITOP",
+      "url": "https://github.com/joeferner/redis-commander/blob/2a222de65ed15832d4d4adfbbce564539b80115f/lib/redisCommands/redisCore.js#L5-L23"
+    },
+    {
+      "id": "C04",
+      "repository": "redis-commander",
+      "path": "lib/routes/apiv1.js",
+      "start_line": 1334,
+      "end_line": 1455,
+      "purpose": "目录按需展开、glob 转义与键标识",
+      "url": "https://github.com/joeferner/redis-commander/blob/2a222de65ed15832d4d4adfbbce564539b80115f/lib/routes/apiv1.js#L1334-L1455"
+    },
+    {
+      "id": "C05",
+      "repository": "redis-commander",
+      "path": "bin/redis-commander.js",
+      "start_line": 606,
+      "end_line": 661,
+      "purpose": "KEYS 包装为 SCAN 但累计至游标结束",
+      "url": "https://github.com/joeferner/redis-commander/blob/2a222de65ed15832d4d4adfbbce564539b80115f/bin/redis-commander.js#L606-L661"
+    },
+    {
+      "id": "C06",
+      "repository": "redis-commander",
+      "path": "lib/redisCommands/redisCore.js",
+      "start_line": 114,
+      "end_line": 148,
+      "purpose": "XREADGROUP 及当前导出的静态只读表",
+      "url": "https://github.com/joeferner/redis-commander/blob/2a222de65ed15832d4d4adfbbce564539b80115f/lib/redisCommands/redisCore.js#L114-L148"
+    },
+    {
+      "id": "P01",
+      "repository": "phpredisadmin",
+      "path": "includes/functions.inc.php",
+      "start_line": 192,
+      "end_line": 221,
+      "purpose": "服务端过滤范围检查集中化",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/includes/functions.inc.php#L192-L221"
+    },
+    {
+      "id": "P02",
+      "repository": "phpredisadmin",
+      "path": "edit.php",
+      "start_line": 25,
+      "end_line": 92,
+      "purpose": "写入前校验及按成员编辑",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/edit.php#L25-L92"
+    },
+    {
+      "id": "P03",
+      "repository": "phpredisadmin",
+      "path": "includes/functions.inc.php",
+      "start_line": 284,
+      "end_line": 298,
+      "purpose": "按键模式配置 load / save 序列化",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/includes/functions.inc.php#L284-L298"
+    },
+    {
+      "id": "P04",
+      "repository": "phpredisadmin",
+      "path": "includes/config.sample.inc.php",
+      "start_line": 30,
+      "end_line": 36,
+      "purpose": "单次扫描大小和总量配置分离",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/includes/config.sample.inc.php#L30-L36"
+    },
+    {
+      "id": "P05",
+      "repository": "phpredisadmin",
+      "path": "view.php",
+      "start_line": 69,
+      "end_line": 104,
+      "purpose": "Hash / Set / ZSet 展示前全量读取",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/view.php#L69-L104"
+    },
+    {
+      "id": "P06",
+      "repository": "phpredisadmin",
+      "path": "export.php",
+      "start_line": 11,
+      "end_line": 108,
+      "purpose": "命令文本 / JSON 导出及逐项读取",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/export.php#L11-L108"
+    },
+    {
+      "id": "P07",
+      "repository": "phpredisadmin",
+      "path": "tests/redis_pattern_match_test.php",
+      "start_line": 40,
+      "end_line": 100,
+      "purpose": "Redis glob 和字节边界测试",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/tests/redis_pattern_match_test.php#L40-L100"
+    },
+    {
+      "id": "P08",
+      "repository": "phpredisadmin",
+      "path": "includes/functions.inc.php",
+      "start_line": 29,
+      "end_line": 49,
+      "purpose": "glob 匹配器的 Redis 来源和平台说明",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/includes/functions.inc.php#L29-L49"
+    },
+    {
+      "id": "P09",
+      "repository": "phpredisadmin",
+      "path": "includes/functions.inc.php",
+      "start_line": 253,
+      "end_line": 269,
+      "purpose": "容量与 TTL 的人类可读格式",
+      "url": "https://github.com/erikdubbelboer/phpRedisAdmin/blob/44dad2ad4fd5f7bc6e0c87e27442d7f97c2e9019/includes/functions.inc.php#L253-L269"
+    },
+    {
+      "id": "X01",
+      "repository": "p3x",
+      "path": "package.json",
+      "start_line": 86,
+      "end_line": 96,
+      "purpose": "Electron 壳依赖真正的服务端和前端包",
+      "url": "https://github.com/patrikx3/redis-ui/blob/ffd81b2e118d980792d4b9399d64b2086188980b/package.json#L86-L96"
+    },
+    {
+      "id": "X02",
+      "repository": "p3x-server",
+      "path": "src/lib/redis-command-meta.mjs",
+      "start_line": 33,
+      "end_line": 89,
+      "purpose": "命令分类、提示和子命令归一化",
+      "url": "https://github.com/patrikx3/redis-ui-server/blob/b587f8610eec5112961b87dc55605916f4c8a0f6/src/lib/redis-command-meta.mjs#L33-L89"
+    },
+    {
+      "id": "X03",
+      "repository": "p3x-material",
+      "path": "src/react/pages/console/ConsoleComponent.tsx",
+      "start_line": 208,
+      "end_line": 220,
+      "purpose": "去重且有上限的命令历史",
+      "url": "https://github.com/patrikx3/redis-ui-material/blob/2bba5db1dd6d5256b7694662527b5693cc48bb9b/src/react/pages/console/ConsoleComponent.tsx#L208-L220"
+    },
+    {
+      "id": "X04",
+      "repository": "p3x-server",
+      "path": "src/service/socket.io/request/key/get.mjs",
+      "start_line": 16,
+      "end_line": 142,
+      "purpose": "模块类型归一化、按类型详情策略与全量读取边界",
+      "url": "https://github.com/patrikx3/redis-ui-server/blob/b587f8610eec5112961b87dc55605916f4c8a0f6/src/service/socket.io/request/key/get.mjs#L16-L142"
+    },
+    {
+      "id": "X05",
+      "repository": "p3x-server",
+      "path": "src/service/socket.io/request/key/export.mjs",
+      "start_line": 18,
+      "end_line": 151,
+      "purpose": "版本化导出、二进制值、TTL 与格式边界",
+      "url": "https://github.com/patrikx3/redis-ui-server/blob/b587f8610eec5112961b87dc55605916f4c8a0f6/src/service/socket.io/request/key/export.mjs#L18-L151"
+    },
+    {
+      "id": "X06",
+      "repository": "p3x-server",
+      "path": "src/service/socket.io/request/memory/analysis.mjs",
+      "start_line": 10,
+      "end_line": 47,
+      "purpose": "结果采样上限不等于扫描工作上限",
+      "url": "https://github.com/patrikx3/redis-ui-server/blob/b587f8610eec5112961b87dc55605916f4c8a0f6/src/service/socket.io/request/memory/analysis.mjs#L10-L47"
+    },
+    {
+      "id": "X07",
+      "repository": "p3x-server",
+      "path": "src/service/decompress.mjs",
+      "start_line": 10,
+      "end_line": 79,
+      "purpose": "按特征识别压缩与同步解压的限制",
+      "url": "https://github.com/patrikx3/redis-ui-server/blob/b587f8610eec5112961b87dc55605916f4c8a0f6/src/service/decompress.mjs#L10-L79"
+    },
+    {
+      "id": "X08",
+      "repository": "p3x-server",
+      "path": "src/lib/redis-version.mjs",
+      "start_line": 1,
+      "end_line": 21,
+      "purpose": "按 Redis 版本组织能力提示",
+      "url": "https://github.com/patrikx3/redis-ui-server/blob/b587f8610eec5112961b87dc55605916f4c8a0f6/src/lib/redis-version.mjs#L1-L21"
+    },
+    {
+      "id": "X09",
+      "repository": "p3x-server",
+      "path": "src/service/socket.io/request/hash-field/ttl-get.mjs",
+      "start_line": 1,
+      "end_line": 23,
+      "purpose": "Hash 字段 TTL 请求",
+      "url": "https://github.com/patrikx3/redis-ui-server/blob/b587f8610eec5112961b87dc55605916f4c8a0f6/src/service/socket.io/request/hash-field/ttl-get.mjs#L1-L23"
+    },
+    {
+      "id": "X10",
+      "repository": "p3x-server",
+      "path": "src/service/socket.io/shared.mjs",
+      "start_line": 121,
+      "end_line": 191,
+      "purpose": "普通浏览限制键数、停止扫描",
+      "url": "https://github.com/patrikx3/redis-ui-server/blob/b587f8610eec5112961b87dc55605916f4c8a0f6/src/service/socket.io/shared.mjs#L121-L191"
+    }
+  ]
+}

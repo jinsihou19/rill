@@ -74,4 +74,4 @@ swift test
 
 当前首版为 **v0.1.0 开发版**。本地 Git 标签 `v0.1.0` 固定首版源码；后续研究和规划与产品实现分开记录。
 
-文档入口见 [文档目录](docs/README.md)：包含 [首版交付说明](docs/releases/v0.1.0.md)、[竞品调研与功能边界](docs/research-and-scope.md) 和 [验证记录](docs/validation.md)。
+文档入口见 [文档目录](docs/README.md)：包含 [首版交付说明](docs/releases/v0.1.0.md)、[第一轮调研](docs/research-and-scope.md)、[源码深入研究](docs/research/source-deep-dive.md)、[迁移路线](docs/research/migration-roadmap.md) 和 [验证记录](docs/validation.md)。
