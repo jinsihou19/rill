@@ -1,0 +1,77 @@
+# Rill · Redis for Mac
+
+一个专注日常开发的 macOS 原生 Redis 客户端。SwiftUI + AppKit，Network.framework 直连 Redis，密码保存到 macOS 钥匙串。无第三方 Swift 依赖，无 WebView、Electron 或 Node 运行时。
+
+## 运行
+
+需要 macOS 14+、Xcode/Swift 6 工具链。目标协议 Redis 6.2+ standalone。
+
+```sh
+./scripts/build-app.sh --open
+```
+
+生成 `build/Rill.app`，可复制到「应用程序」。这是本机架构的 ad-hoc 签名开发版，未做 Developer ID 签名或公证。
+
+也可用 Xcode 打开 `Package.swift`，或执行 `swift run Rill`。开发运行的帮助菜单资源需要打包后才可用。
+
+## 可以做什么
+
+- 多连接、环境标识、ACL 认证、系统信任证书 TLS、连接测试、DB 切换、只读模式。
+- SCAN/MATCH/TYPE 分页浏览、前缀分组、键收藏、TTL 和内存信息。
+- String 文本/JSON/Hex、JSON 校验与格式化、保留 TTL 的原子冲突检查保存。
+- Hash 字段编辑、List 索引编辑/尾部追加、Set 增删、ZSet 分值编辑、Stream 查看/增删条目。
+- 六种类型新建键、RENAMENX 重命名、过期时间、UNLINK 删除、当前已加载页导出。
+- 独立连接的命令工作台、引号/转义、命令建议、内存历史、耗时与复制。
+- INFO 概览与最近 50 条慢查询，按需刷新。
+- 系统明暗模式、可调整栏宽、原生文件面板、未保存提醒、生产写入名称确认。
+
+搜索使用 Redis glob，例如 `user:*`，输入后按回车。类型筛选在服务端执行。收藏和前缀分组只作用于已加载键；继续扫描可获取更多匹配项。SCAN 不是一致性快照。
+
+## 快捷键
+
+| 操作 | 快捷键 |
+|---|---|
+| 添加连接 | ⇧⌘N |
+| 新建键 | ⌘N |
+| 搜索键 | ⌘F |
+| 刷新当前页面 | ⌘R |
+| 保存字符串值 | ⌘S |
+| 数据浏览 / 工作台 / 服务器 / 慢查询 | ⌘1 / ⌘2 / ⌘3 / ⌘4 |
+| 执行命令 | ⌘↩ 或输入框回车 |
+| 浏览命令历史 | 输入框 ↑ / ↓ |
+
+## 本地演示
+
+```sh
+brew install redis  # 如果尚未安装
+./scripts/demo.sh
+```
+
+脚本在随机端口启动独立 Redis，写入虚构演示数据，再打开 Rill。退出该应用后销毁实例。不会连接、修改或清空已有 6379 服务。演示连接不保存到磁盘。
+
+## 测试
+
+```sh
+swift test
+./scripts/verify-storage.sh
+```
+
+协议与策略单测不依赖服务。集成测试会自动启动仅监听 127.0.0.1 的临时 Redis，使用随机端口和独立目录；没有 `redis-server` 时明确跳过集成测试。不要将跳过视为已验证。
+
+`verify-storage.sh` 用临时目录验证配置和权限，用随机 UUID 的合成密码验证原生 Keychain 增删改查；结束后移除测试项，不读取已有凭据。
+
+## 数据与边界
+
+- 配置：`~/Library/Application Support/Rill/connections.json`，不包含密码，权限 0600。
+- 密码：macOS Keychain，service `app.rill.redis.credentials`。
+- 收藏：应用 UserDefaults。工作台历史和慢查询只在内存中显示，退出清除。
+- 生产环境初选时默认只读；关闭只读后，写入需要输入连接名称。未知/模块命令按写入对待，只读模式拒绝执行。
+- 工作台禁止会话切换、事务、订阅、阻塞和服务器管理命令。数据库切换使用应用控件。
+- 字符串预览 1 MiB，超限不可保存，二进制值只读；原始字节可以导出。集合按页加载，导出仅含当前已加载行，以 base64 保留字节。
+- 不自动重试写入。超时/断线时，操作结果可能未知，请刷新核对。
+- TLS 只接受系统信任的有效证书，不提供跳过验证开关；当前不提供自定义 CA 或客户端证书界面。
+- 暂不支持 Cluster/Sentinel 路由、内建 SSH、模块编辑器、Pub/Sub、全库迁移、批量删除、自动更新。
+
+当前首版为 **v0.1.0 开发版**。本地 Git 标签 `v0.1.0` 固定首版源码；后续研究和规划与产品实现分开记录。
+
+文档入口见 [文档目录](docs/README.md)：包含 [首版交付说明](docs/releases/v0.1.0.md)、[竞品调研与功能边界](docs/research-and-scope.md) 和 [验证记录](docs/validation.md)。

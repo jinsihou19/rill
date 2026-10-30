@@ -1,0 +1,194 @@
+import XCTest
+import Darwin
+@testable import RillCore
+
+private final class TestRedis {
+    let process = Process()
+    let port: Int
+    let directory: URL
+    init() throws {
+        let binary = ["/opt/homebrew/bin/redis-server", "/usr/local/bin/redis-server", "/usr/bin/redis-server"].first { FileManager.default.isExecutableFile(atPath: $0) }
+        guard let binary else { throw XCTSkip("Integration tests require redis-server.") }
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw RedisError.message("Cannot reserve test port") }
+        var address = sockaddr_in(); address.sin_family = sa_family_t(AF_INET); address.sin_port = 0; address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) } }
+        port = Int(UInt16(bigEndian: address.sin_port)); Darwin.close(fd)
+        guard bound == 0, port > 0 else { throw RedisError.message("Cannot reserve test port") }
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("rill-tests-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        process.executableURL = URL(fileURLWithPath: binary)
+        process.arguments = ["--bind", "127.0.0.1", "--port", String(port), "--save", "", "--appendonly", "no", "--dir", directory.path, "--requirepass", "rill-test-secret"]
+        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        try process.run()
+    }
+    deinit {
+        if process.isRunning {
+            let pid = process.processIdentifier
+            kill(pid, SIGTERM)
+            // Foundation waitUntilExit can stall on a cooperative executor without its launch run loop.
+            for _ in 0..<100 {
+                var status: Int32 = 0
+                if waitpid(pid, &status, WNOHANG) != 0 { break }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+        }
+        try? FileManager.default.removeItem(at: directory)
+    }
+    func connect(database: Int = 0, readOnly: Bool = false) async throws -> RedisDatabase {
+        var last: Error = RedisError.message("server not ready")
+        for _ in 0..<30 {
+            do { return try await RedisDatabase.connect(ConnectionProfile(port: port, database: database, readOnly: readOnly), password: "rill-test-secret", timeout: 2) }
+            catch { last = error; try await Task.sleep(nanoseconds: 30_000_000) }
+        }
+        throw last
+    }
+}
+
+final class RedisIntegrationTests: XCTestCase {
+    private var server: TestRedis!
+    private var db: RedisDatabase!
+    override func setUp() async throws { server = try TestRedis(); db = try await server.connect() }
+    override func tearDown() async throws { db?.close(); db = nil; server = nil }
+    private func data(_ text: String) -> Data { Data(text.utf8) }
+
+    func testStringConflictPreservesTTLAndBinary() async throws {
+        let key = data("rill:中文🔑"), original = Data([0, 255, 10, 13])
+        try await db.create(key: key, kind: .string, field: Data(), value: original, ttl: 120)
+        let page = try await db.inspect(key)
+        XCTAssertEqual(page.content, original); XCTAssertGreaterThan(page.key.ttl, 115_000)
+        try await db.saveString(key: key, expected: original, replacement: data("new"))
+        let saved = try await db.inspect(key)
+        XCTAssertEqual(saved.content, data("new")); XCTAssertGreaterThan(saved.key.ttl, 115_000)
+        do { try await db.saveString(key: key, expected: original, replacement: data("wrong")); XCTFail("Must detect conflict") } catch {}
+        let final = try await db.inspect(key); XCTAssertEqual(final.content, data("new"))
+    }
+    func testCreateNeverOverwritesAndExpiredEditNeverRecreates() async throws {
+        let key = data("create")
+        try await db.create(key: key, kind: .string, field: Data(), value: data("first"))
+        do { try await db.create(key: key, kind: .hash, field: data("f"), value: data("second")); XCTFail() } catch {}
+        try await db.deleteKey(key)
+        do { try await db.saveString(key: key, expected: data("first"), replacement: data("recreated")); XCTFail() } catch {}
+        let exists = try await db.wire.execute(["EXISTS", "create"]).number; XCTAssertEqual(exists, 0)
+    }
+    func testAllCollectionTypesAndGranularEdits() async throws {
+        for kind in [KeyKind.hash, .list, .set, .zset, .stream] {
+            let key = data(kind.rawValue)
+            let value = kind == .stream ? data(#"{"event":"created"}"#) : data("first")
+            try await db.create(key: key, kind: kind, field: data("field"), value: value, score: "1.5", ttl: 120)
+            var page = try await db.inspect(key)
+            XCTAssertEqual(page.key.kind, kind); XCTAssertEqual(page.count, 1)
+            let nextValue = kind == .stream ? data(#"{"event":"updated"}"#) : data("second")
+            try await db.addRow(key: key, kind: kind, field: data("another"), value: nextValue, score: "2")
+            page = try await db.inspect(key); XCTAssertEqual(page.count, 2)
+            if [.hash, .list, .zset].contains(kind) {
+                let row = try XCTUnwrap(page.rows.first)
+                try await db.saveRow(key: key, kind: kind, row: row, replacement: data("changed"), score: "3.75", total: page.count)
+                do { try await db.saveRow(key: key, kind: kind, row: row, replacement: data("conflict"), score: "4", total: page.count); XCTFail("Must detect stale member") } catch {}
+                page = try await db.inspect(key)
+            }
+            if kind != .list {
+                try await db.deleteRow(key: key, kind: kind, row: try XCTUnwrap(page.rows.first))
+                page = try await db.inspect(key); XCTAssertEqual(page.count, 1)
+            }
+            XCTAssertGreaterThan(page.key.ttl, 110_000)
+        }
+    }
+    func testCursorScanFilteringAndDatabaseIsolation() async throws {
+        let commands = (0..<650).map { [data("SET"), data("scan:\($0)"), data("v")] }
+        _ = try await db.wire.pipeline(commands)
+        try await db.create(key: data("other"), kind: .list, field: Data(), value: data("one"))
+        var cursor = "0", ids = Set<String>(), pages = 0
+        repeat {
+            let result = try await db.scan(cursor: cursor, pattern: "scan:*", kind: "string")
+            cursor = result.cursor; ids.formUnion(result.keys.map(\.id)); pages += 1
+        } while cursor != "0" && pages < 50
+        XCTAssertEqual(ids.count, 650); XCTAssertGreaterThan(pages, 1)
+        let isolated = try await server.connect(database: 1); defer { isolated.close() }
+        let size = try await isolated.size(); XCTAssertEqual(size, 0)
+        let originalSize = try await db.size(); XCTAssertEqual(originalSize, 651)
+    }
+    func testListAndStreamPagination() async throws {
+        _ = try await db.wire.execute(["RPUSH", "list"] + (0..<450).map(String.init))
+        let first = try await db.inspect(data("list")); XCTAssertEqual(first.rows.count, 200); XCTAssertTrue(first.hasMore)
+        let second = try await db.inspect(data("list"), offset: first.nextOffset)
+        XCTAssertEqual(second.rows.first?.valueText, "200"); XCTAssertEqual(second.rows.first?.index, 200)
+        let third = try await db.inspect(data("list"), offset: second.nextOffset)
+        XCTAssertEqual(third.rows.count, 50); XCTAssertFalse(third.hasMore)
+        _ = try await db.wire.pipeline((0..<230).map { [data("XADD"), data("events"), data("*"), data("number"), data(String($0))] })
+        let stream = try await db.inspect(data("events")); XCTAssertTrue(stream.hasMore)
+        let stream2 = try await db.inspect(data("events"), cursor: stream.cursor)
+        XCTAssertEqual(stream2.rows.count, 30)
+        XCTAssertTrue(Set(stream.rows.map(\.id)).isDisjoint(with: Set(stream2.rows.map(\.id))))
+    }
+    func testReadOnlyRejectsEveryMutation() async throws {
+        let readonly = try await server.connect(readOnly: true); defer { readonly.close() }
+        try await db.create(key: data("read"), kind: .string, field: Data(), value: data("v"))
+        do { try await readonly.saveString(key: data("read"), expected: data("v"), replacement: data("wrong")); XCTFail() } catch {}
+        do { try await readonly.deleteKey(data("read")); XCTFail() } catch {}
+        do { try await readonly.expire(data("read"), seconds: 5); XCTFail() } catch {}
+        do { try await readonly.rename(data("read"), to: data("renamed")); XCTFail() } catch {}
+        do { try await readonly.create(key: data("new"), kind: .set, field: Data(), value: data("v")); XCTFail() } catch {}
+        let page = try await readonly.inspect(data("read")); XCTAssertEqual(page.content, data("v"))
+    }
+    func testStreamBinaryFieldsRetainOriginalBytesForExport() async throws {
+        let field = Data([0xff, 0x01]), value = Data([0, 0xff, 13, 10])
+        _ = try await db.wire.execute([data("XADD"), data("binary-events"), data("*"), field, value])
+        let page = try await db.inspect(data("binary-events"))
+        XCTAssertEqual(page.rows.first?.streamFields, [field, value])
+    }
+    func testACLAuthErrorsAndReconnect() async throws {
+        _ = try await db.wire.execute(["ACL", "SETUSER", "reader", "on", ">reader-secret", "~*", "+@read", "+ping", "+select"])
+        let reader = try await RedisDatabase.connect(ConnectionProfile(port: server.port, username: "reader"), password: "reader-secret")
+        defer { reader.close() }
+        do { _ = try await reader.wire.execute(["SET", "x", "v"]); XCTFail() } catch {}
+        let ping = try await reader.wire.execute(["PING"]); XCTAssertEqual(ping.string, "PONG")
+        do { _ = try await RedisDatabase.connect(ConnectionProfile(port: server.port), password: "wrong", timeout: 1); XCTFail() } catch {}
+    }
+    func testRenameTTLAndLargePreview() async throws {
+        try await db.create(key: data("a"), kind: .string, field: Data(), value: data("one"))
+        try await db.create(key: data("b"), kind: .string, field: Data(), value: data("two"))
+        do { try await db.rename(data("a"), to: data("b")); XCTFail() } catch {}
+        try await db.rename(data("a"), to: data("c")); try await db.expire(data("c"), seconds: 60)
+        var page = try await db.inspect(data("c")); XCTAssertGreaterThan(page.key.ttl, 55_000)
+        try await db.expire(data("c"), seconds: nil); page = try await db.inspect(data("c")); XCTAssertEqual(page.key.ttl, -1)
+        _ = try await db.wire.execute([data("SET"), data("large"), Data(repeating: 65, count: RedisDatabase.previewLimit + 10)])
+        let large = try await db.inspect(data("large")); XCTAssertTrue(large.isTruncated); XCTAssertEqual(large.content?.count, RedisDatabase.previewLimit)
+    }
+    func testTimeoutClosesConnectionAndFailsQueuedRequests() async throws {
+        let connection = try RedisConnection(host: "127.0.0.1", port: server.port, timeout: 0.15)
+        try await connection.open(); _ = try await connection.execute(["AUTH", "rill-test-secret"])
+        let blocked = Task { try await connection.execute(["BLPOP", "empty-list", "0"]) }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        let queued = Task { try await connection.execute(["PING"]) }
+        do { _ = try await blocked.value; XCTFail() } catch { XCTAssertTrue(error.localizedDescription.contains("超时")) }
+        do { _ = try await queued.value; XCTFail("Queued command must fail, not reuse a late response") } catch {}
+        do { _ = try await connection.execute(["PING"]); XCTFail() } catch {}
+    }
+    func testIdleDisconnectIsReported() async throws {
+        let expectation = expectation(description: "disconnect callback")
+        let db = try await server.connect()
+        db.wire.onDisconnect { reason in XCTAssertFalse(reason.isEmpty); expectation.fulfill() }
+        _ = try await self.db.wire.execute(["CLIENT", "KILL", "TYPE", "normal", "SKIPME", "yes"])
+        await fulfillment(of: [expectation], timeout: 2)
+        db.close()
+    }
+    func testCancelledRequestClosesRatherThanReusesSocket() async throws {
+        let connection = try RedisConnection(host: "127.0.0.1", port: server.port)
+        try await connection.open(); _ = try await connection.execute(["AUTH", "rill-test-secret"])
+        let task = Task { try await connection.execute(["BLPOP", "cancel-list", "0"]) }
+        try await Task.sleep(nanoseconds: 20_000_000); task.cancel()
+        do { _ = try await task.value; XCTFail() } catch {}
+        do { _ = try await connection.execute(["PING"]); XCTFail() } catch {}
+    }
+    func testInfoSlowlogAndServerErrorDoesNotDesyncPipeline() async throws {
+        let info = try await db.info(); XCTAssertNotNil(info["redis_version"])
+        _ = try await db.wire.execute(["CONFIG", "SET", "slowlog-log-slower-than", "0"])
+        _ = try await db.wire.execute(["PING"])
+        let logs = try await db.slowQueries(); XCTAssertFalse(logs.isEmpty)
+        let replies = try await db.wire.pipeline([[data("NOT_A_COMMAND")], [data("PING")]])
+        XCTAssertThrowsError(try replies[0].checked()); XCTAssertEqual(replies[1].string, "PONG")
+    }
+}

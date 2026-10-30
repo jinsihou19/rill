@@ -1,0 +1,118 @@
+import Foundation
+
+public enum RedisError: LocalizedError, Equatable {
+    case message(String)
+    public var errorDescription: String? {
+        if case .message(let text) = self { return text }
+        return nil
+    }
+}
+
+public indirect enum RESPValue: Equatable, Sendable {
+    case simple(String), error(String), integer(Int64), bulk(Data?), array([RESPValue]?)
+
+    public var data: Data? {
+        switch self {
+        case .bulk(let data): return data
+        case .simple(let text): return Data(text.utf8)
+        default: return nil
+        }
+    }
+    public var string: String? { data.flatMap { String(data: $0, encoding: .utf8) } }
+    public var elements: [RESPValue]? { if case .array(let items) = self { return items }; return nil }
+    public var number: Int64? { if case .integer(let n) = self { return n }; return string.flatMap(Int64.init) }
+    public func checked() throws -> RESPValue {
+        if case .error(let text) = self { throw RedisError.message(text) }
+        return self
+    }
+    public var pretty: String {
+        switch self {
+        case .simple(let s): return s
+        case .error(let s): return "(error) \(s)"
+        case .integer(let n): return "(integer) \(n)"
+        case .bulk(nil), .array(nil): return "(nil)"
+        case .bulk(let data?): return DataPresentation.text(data)
+        case .array(let items?):
+            if items.isEmpty { return "(empty array)" }
+            return items.enumerated().map { "\($0.offset + 1)) \($0.element.pretty)" }.joined(separator: "\n")
+        }
+    }
+}
+
+public enum RESPCodec {
+    public static let maximumBytes = 32 * 1024 * 1024
+    public static func encode(_ arguments: [Data]) -> Data {
+        var output = Data("*\(arguments.count)\r\n".utf8)
+        for arg in arguments {
+            output.append(Data("$\(arg.count)\r\n".utf8)); output.append(arg); output.append(contentsOf: [13, 10])
+        }
+        return output
+    }
+
+    // A nil result means an incomplete frame. The caller retains the unconsumed bytes.
+    public static func decode(_ input: Data) throws -> (value: RESPValue, consumed: Int)? {
+        let bytes = [UInt8](input)
+        var index = 0
+        func parse(_ depth: Int) throws -> RESPValue? {
+            guard depth < 64 else { throw RedisError.message("RESP 嵌套层数过多。") }
+            let start = index
+            guard index < bytes.count else { return nil }
+            let marker = bytes[index]; index += 1
+            let lineStart = index
+            while index + 1 < bytes.count && !(bytes[index] == 13 && bytes[index + 1] == 10) { index += 1 }
+            guard index + 1 < bytes.count else { index = start; return nil }
+            let line = String(decoding: bytes[lineStart..<index], as: UTF8.self)
+            index += 2
+            switch marker {
+            case 43: return .simple(line)
+            case 45: return .error(line)
+            case 58:
+                guard let number = Int64(line) else { throw RedisError.message("无效的 RESP 整数。") }
+                return .integer(number)
+            case 36, 42:
+                guard let count = Int(line), count >= -1, count <= maximumBytes else {
+                    throw RedisError.message("RESP 响应超过 32 MiB 限制或长度无效。")
+                }
+                if count == -1 { return marker == 36 ? .bulk(nil) : .array(nil) }
+                if marker == 36 {
+                    guard bytes.count - index >= count + 2 else { index = start; return nil }
+                    guard bytes[index + count] == 13, bytes[index + count + 1] == 10 else {
+                        throw RedisError.message("RESP 数据结束符无效。")
+                    }
+                    let data = Data(bytes[index..<(index + count)]); index += count + 2
+                    return .bulk(data)
+                }
+                guard count <= 100_000 else { throw RedisError.message("单次响应包含过多元素，请缩小查询范围。") }
+                var items: [RESPValue] = []
+                for _ in 0..<count {
+                    guard let item = try parse(depth + 1) else { index = start; return nil }
+                    items.append(item)
+                }
+                return .array(items)
+            default: throw RedisError.message("不支持的 RESP 类型：\(marker)。")
+            }
+        }
+        guard let value = try parse(0) else { return nil }
+        return (value, index)
+    }
+}
+
+public enum DataPresentation {
+    public static func text(_ data: Data) -> String {
+        if let text = String(data: data, encoding: .utf8), !data.contains(0) { return text }
+        return "0x" + data.map { String(format: "%02x", $0) }.joined()
+    }
+    public static func key(_ data: Data) -> String {
+        text(data).replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r").replacingOccurrences(of: "\t", with: "\\t")
+    }
+    public static func hex(_ data: Data) -> String {
+        stride(from: 0, to: data.count, by: 16).map { offset in
+            let end = min(offset + 16, data.count)
+            let chunk = data.subdata(in: offset..<end)
+            let hex = chunk.map { String(format: "%02X", $0) }.joined(separator: " ")
+            let ascii = chunk.map { (32...126).contains($0) ? String(UnicodeScalar($0)) : "." }.joined()
+            return String(format: "%08X  ", offset) + hex.padding(toLength: 48, withPad: " ", startingAt: 0) + "  " + ascii
+        }.joined(separator: "\n")
+    }
+}
