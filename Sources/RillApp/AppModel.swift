@@ -61,6 +61,8 @@ final class AppModel: ObservableObject {
     @Published var searchMode: KeySearchMode = .pattern
     @Published var typeFilter = ""
     @Published var grouped = true
+    @Published var showKeyTypes = true
+    @Published var showKeyTTL = true
     @Published var favoritesOnly = false
     @Published var scanFinished = false
     @Published var totalKeys: Int64?
@@ -84,6 +86,11 @@ final class AppModel: ObservableObject {
     private var keyGeneration = UUID()
     private var scanSession: KeyScanSession?
     private var scanQuery = (mode: KeySearchMode.pattern, text: "", kind: "")
+    private var keyIndex: [String: Int] = [:]
+    private var visibleKeyObservers: [UUID: String] = [:]
+    private var visibleKeyIDs: Set<String> { Set(visibleKeyObservers.values) }
+    private var metadataDebounce: Task<Void, Never>?
+    private var isReadingMetadata = false
     private var connectTask: Task<Void, Never>?
     private var scanTask: Task<Void, Never>?
     private var detailTask: Task<Void, Never>?
@@ -97,6 +104,7 @@ final class AppModel: ObservableObject {
     var busy: Bool { isConnecting || isLoadingKeys || isStoppingScan || isLoadingDetail || isWriting || isConsoleRunning || diagnosticsLoading }
     var canSearch: Bool { connected && !isConnecting && !isWriting && !isConsoleRunning }
     var isPatternSearch: Bool { scanQuery.mode == .pattern }
+    var keyListRevision: UUID { keyGeneration }
     var canWrite: Bool { connected && activeProfile?.readOnly == false && !busy }
     var latency: Double { database?.latency ?? 0 }
     var dirty: Bool {
@@ -169,6 +177,7 @@ final class AppModel: ObservableObject {
     func disconnect() { guardDraft { [weak self] in self?.reset(); self?.activeProfile = nil } }
     private func reset() {
         generation = UUID(); detailGeneration = UUID(); keyGeneration = UUID(); scanSession = nil
+        metadataDebounce?.cancel(); visibleKeyObservers = [:]; keyIndex = [:]; isReadingMetadata = false
         connectTask?.cancel(); scanTask?.cancel(); detailTask?.cancel(); database?.close(); database = nil
         keys = []; selectedKeyID = nil; detail = nil; draft = ""; scanFinished = false; totalKeys = nil; capabilityStates = []
         serverInfo = [:]; slowQueries = []; consoleEntries = []; consoleInput = ""
@@ -194,6 +203,7 @@ final class AppModel: ObservableObject {
         if reset {
             if let old = scanSession { Task { await old.pause() } }
             keyGeneration = UUID(); keys = []; scanFinished = false; scanState = .budget
+            metadataDebounce?.cancel(); visibleKeyObservers = [:]; keyIndex = [:]; isReadingMetadata = false
             scanSession = KeyScanSession()
             scanQuery = (searchMode, search, typeFilter)
         }
@@ -208,7 +218,7 @@ final class AppModel: ObservableObject {
                     if let key = try await db.lookup(exact, kind: kind) { additions = [key] }
                 } else {
                     let batch = try await session.nextPage(fetchWithinBudget: { cursor, remaining in
-                        try await db.scan(cursor: cursor, pattern: pattern, kind: kind, maximumRequests: remaining)
+                        try await db.scan(cursor: cursor, pattern: pattern, kind: kind, maximumRequests: remaining, includeMetadata: false)
                     })
                     additions = batch.keys; reason = batch.reason
                 }
@@ -224,6 +234,7 @@ final class AppModel: ObservableObject {
                 for key in additions { merged[key.id] = key }
                 if let selectedPage { merged[selectedPage.key.id] = selectedPage.key }
                 keys = merged.values.sorted { $0.bytes.lexicographicallyPrecedes($1.bytes) }
+                keyIndex = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($0.element.id, $0.offset) })
                 scanState = reason; scanFinished = reason == .complete || reason == .capacity
                 if reset { totalKeys = count }
                 isLoadingKeys = false; isStoppingScan = false
@@ -245,6 +256,63 @@ final class AppModel: ObservableObject {
         guard isLoadingKeys, isPatternSearch, let session = scanSession else { return }
         isLoadingKeys = false; isStoppingScan = true
         Task { await session.pause() }
+    }
+    func keyAppeared(_ id: String, revision: UUID, observer: UUID) {
+        guard revision == keyGeneration else { return }
+        visibleKeyObservers[observer] = id; requestVisibleMetadata()
+    }
+    func keyDisappeared(_ id: String, revision: UUID, observer: UUID) {
+        if revision == keyGeneration, visibleKeyObservers[observer] == id { visibleKeyObservers.removeValue(forKey: observer) }
+    }
+    func requestVisibleMetadata() {
+        metadataDebounce?.cancel()
+        metadataDebounce = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 60_000_000) } catch { return }
+            self?.loadVisibleMetadata()
+        }
+    }
+    private func loadVisibleMetadata() {
+        guard connected, let db = database, !isReadingMetadata, showKeyTypes || showKeyTTL else { return }
+        let batch = Array(visibleKeyIDs.sorted().compactMap { id -> RedisKey? in
+            guard let index = keyIndex[id] else { return nil }
+            let row = keys[index]
+            let needsType = showKeyTypes && row.rawType == nil && row.typeError == nil
+            let needsTTL = showKeyTTL && row.ttl == nil && row.ttlError == nil
+            return needsType || needsTTL ? row : nil
+        }.prefix(64))
+        guard !batch.isEmpty else { return }
+        let token = generation, revision = keyGeneration
+        let includeType = showKeyTypes && batch.contains { $0.rawType == nil && $0.typeError == nil }
+        let includeTTL = showKeyTTL && batch.contains { $0.ttl == nil && $0.ttlError == nil }
+        let knownKind = scanQuery.kind.isEmpty ? nil : scanQuery.kind
+        isReadingMetadata = true
+        Task {
+            do {
+                let rows = try await db.metadata(for: batch.map(\.bytes), knownKind: knownKind, includeTTL: includeTTL, includeType: includeType)
+                let states = await db.capabilities.snapshot()
+                guard token == generation, revision == keyGeneration else { return }
+                let received = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                var updated = keys, missing: Set<String> = []
+                for original in batch {
+                    guard let index = keyIndex[original.id] else { continue }
+                    guard let row = received[original.id] else {
+                        if selectedKeyID != original.id || !dirty { missing.insert(original.id) }
+                        else { updated[index] = RedisKey(bytes: original.bytes, kind: original.kind, ttl: -2, rawType: original.rawType, typeError: .message("此键已不存在，未保存的草稿已保留。")) }
+                        continue
+                    }
+                    updated[index] = RedisKey(bytes: row.bytes, kind: row.rawType == nil ? original.kind : row.kind,
+                                              ttl: includeTTL ? row.ttl : original.ttl, rawType: row.rawType ?? original.rawType,
+                                              typeError: includeType ? row.typeError : original.typeError, ttlError: includeTTL ? row.ttlError : original.ttlError,
+                                              memory: original.memory, memoryError: original.memoryError)
+                }
+                if !missing.isEmpty { updated.removeAll { missing.contains($0.id) }; visibleKeyObservers = visibleKeyObservers.filter { !missing.contains($0.value) } }
+                keys = updated; keyIndex = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($0.element.id, $0.offset) })
+                capabilityStates = states; isReadingMetadata = false; requestVisibleMetadata()
+            } catch {
+                guard token == generation, revision == keyGeneration else { return }
+                isReadingMetadata = false; presentError(error)
+            }
+        }
     }
     func selectKey(_ id: String?, force: Bool = false) {
         guard force || id != selectedKeyID else { return }

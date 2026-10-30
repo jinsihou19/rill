@@ -45,11 +45,11 @@ public final class RedisDatabase: @unchecked Sendable {
         return row
     }
 
-    public func metadata(for keys: [Data], knownKind: String? = nil, includeTTL: Bool = true, includeMemory: Bool = false) async throws -> [RedisKey] {
+    public func metadata(for keys: [Data], knownKind: String? = nil, includeTTL: Bool = true, includeMemory: Bool = false, includeType: Bool = true) async throws -> [RedisKey] {
         guard !keys.isEmpty else { return [] }
         var commands: [[Data]] = []
         for key in keys {
-            if knownKind == nil { commands.append([Data("TYPE".utf8), key]) }
+            if knownKind == nil && includeType { commands.append([Data("TYPE".utf8), key]) }
             if includeTTL { commands.append([Data("PTTL".utf8), key]) }
             if includeMemory { commands.append([Data("MEMORY".utf8), Data("USAGE".utf8), key]) }
         }
@@ -61,9 +61,11 @@ public final class RedisDatabase: @unchecked Sendable {
             return reply
         }
         for key in keys {
-            let type = knownKind.map(RESPValue.simple) ?? read("TYPE")
+            let type = knownKind.map(RESPValue.simple) ?? (includeType ? read("TYPE") : .bulk(nil))
             let ttl = includeTTL ? read("PTTL") : .bulk(nil)
             let memory = includeMemory ? read("MEMORY USAGE") : .bulk(nil)
+            if includeType && knownKind == nil && type.serverError == nil && type.string?.isEmpty != false { throw RedisError.message("TYPE 响应格式无效。") }
+            if includeTTL && ttl.serverError == nil && (ttl.number == nil || ttl.number! < -2) { throw RedisError.message("PTTL 响应格式无效。") }
             if type.string == "none" || ttl.number == -2 { continue }
             rows.append(RedisKey(bytes: key, kind: KeyKind(rawValue: type.string ?? "") ?? .unknown, ttl: ttl.number,
                                  rawType: type.string, typeError: type.serverError, ttlError: ttl.serverError,
@@ -73,7 +75,7 @@ public final class RedisDatabase: @unchecked Sendable {
         return rows
     }
 
-    public func scan(cursor: String, pattern: String, kind: String = "", maximumRequests: Int = 2) async throws -> ScanPage {
+    public func scan(cursor: String, pattern: String, kind: String = "", maximumRequests: Int = 2, includeMetadata: Bool = true) async throws -> ScanPage {
         var args = ["SCAN", cursor, "MATCH", pattern.isEmpty ? "*" : pattern, "COUNT", String(Self.pageSize)]
         let supportsType = await capabilities.supportsScanType()
         let useType = !kind.isEmpty && supportsType
@@ -85,7 +87,7 @@ public final class RedisDatabase: @unchecked Sendable {
             guard useType, RedisCapabilities.canRetryScanWithoutType(error), let issue = error as? RedisError else { throw error }
             await capabilities.markScanTypeUnsupported(issue)
             guard maximumRequests > 1 else { return ScanPage(cursor: cursor, keys: [], needsRetry: true) }
-            var fallback = try await scan(cursor: cursor, pattern: pattern, kind: kind, maximumRequests: maximumRequests - 1)
+            var fallback = try await scan(cursor: cursor, pattern: pattern, kind: kind, maximumRequests: maximumRequests - 1, includeMetadata: includeMetadata)
             fallback.requests += 1
             return fallback
         }
@@ -93,7 +95,10 @@ public final class RedisDatabase: @unchecked Sendable {
               let rawKeys = values[1].elements else { throw RedisError.message("SCAN 响应格式无效。") }
         let keys = Array(Set(rawKeys.compactMap(\.data))).sorted { $0.lexicographicallyPrecedes($1) }
         if keys.isEmpty { return ScanPage(cursor: cursor, keys: []) }
-        let rows = try await metadata(for: keys, knownKind: useType ? kind : nil)
+        if !includeMetadata && (kind.isEmpty || useType) {
+            return ScanPage(cursor: cursor, keys: keys.map { RedisKey(bytes: $0, kind: KeyKind(rawValue: kind) ?? .unknown, rawType: useType ? kind : nil) })
+        }
+        let rows = try await metadata(for: keys, knownKind: useType ? kind : nil, includeTTL: includeMetadata)
         if !kind.isEmpty && !useType {
             if let error = rows.first(where: { $0.typeError != nil })?.typeError { throw error }
             return ScanPage(cursor: cursor, keys: rows.filter { $0.rawType == kind })

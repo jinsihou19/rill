@@ -173,8 +173,14 @@ struct WorkspaceView: View {
                             } label: { Image(systemName: "bookmark") }.menuIndicator(.hidden).help("直接打开当前数据库的收藏键").disabled(model.busy)
                         }
                         Button { model.grouped.toggle() } label: { Image(systemName: model.grouped ? "folder" : "list.bullet") }.help("切换前缀分组与列表")
+                        Menu {
+                            Toggle("显示类型", isOn: $model.showKeyTypes)
+                            Toggle("显示 TTL", isOn: $model.showKeyTTL)
+                        } label: { Image(systemName: "line.3.horizontal.decrease") }.menuIndicator(.hidden).help("键列表显示列")
                     }.buttonStyle(.borderless)
                 }.padding(14)
+                    .onChange(of: model.showKeyTypes) { _, _ in model.requestVisibleMetadata() }
+                    .onChange(of: model.showKeyTTL) { _, _ in model.requestVisibleMetadata() }
                 Divider()
                 keyList
                 Divider()
@@ -230,19 +236,25 @@ struct WorkspaceView: View {
         Dictionary(grouping: model.visibleKeys, by: \.namespace).map { KeyGroup(id: $0.key, keys: $0.value) }.sorted { $0.id < $1.id }
     }
     private func keyRow(_ key: RedisKey) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: key.kind.symbol).font(.system(size: 11)).foregroundStyle(key.kind.color).frame(width: 14)
+        let revision = model.keyListRevision
+        return HStack(spacing: 8) {
+            if model.showKeyTypes { Image(systemName: key.kind.symbol).font(.system(size: 11)).foregroundStyle(key.kind.color).frame(width: 14) }
             VStack(alignment: .leading, spacing: 4) {
                 Text(key.name).font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 7) {
-                    Text(key.rawType ?? "类型未知").font(.system(size: 9)).foregroundStyle(.secondary).help(key.typeError?.localizedDescription ?? "数据类型")
-                    if let ttl = key.ttl, ttl >= 0 { Label("有过期时间", systemImage: "clock").font(.system(size: 9)).foregroundStyle(.secondary) }
-                    if key.ttl == nil { Text("TTL 未知").font(.system(size: 9)).foregroundStyle(.secondary).help(key.ttlError?.localizedDescription ?? "尚未读取") }
+                    if model.showKeyTypes { Text(key.rawType ?? "类型未知").font(.system(size: 9)).foregroundStyle(.secondary).help(key.typeError?.localizedDescription ?? "尚未读取") }
+                    if model.showKeyTTL, let ttl = key.ttl, ttl >= 0 { Label("有过期时间", systemImage: "clock").font(.system(size: 9)).foregroundStyle(.secondary) }
+                    if model.showKeyTTL, key.ttl == nil { Text("TTL 未知").font(.system(size: 9)).foregroundStyle(.secondary).help(key.ttlError?.localizedDescription ?? "尚未读取") }
                 }
             }
             Spacer(minLength: 0)
             if model.isFavorite(key) { Image(systemName: "star.fill").font(.system(size: 8)).foregroundStyle(.orange) }
-        }.padding(.vertical, 6).help(key.name).contextMenu {
+        }.padding(.vertical, 6).help(key.name)
+        .background(RowVisibility(identity: key.id + revision.uuidString) { visible, observer in
+            if visible { model.keyAppeared(key.id, revision: revision, observer: observer) }
+            else { model.keyDisappeared(key.id, revision: revision, observer: observer) }
+        }.allowsHitTesting(false))
+        .contextMenu {
             Button("复制键名", systemImage: "doc.on.doc") { copyText(key.name) }
             Button(model.isFavorite(key) ? "取消收藏" : "收藏键", systemImage: "star") { model.toggleFavorite(key) }
         }

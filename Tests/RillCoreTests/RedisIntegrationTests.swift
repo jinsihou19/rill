@@ -209,6 +209,38 @@ final class RedisIntegrationTests: XCTestCase {
         let size = try await isolated.size(); XCTAssertEqual(size, 0)
         let originalSize = try await db.size(); XCTAssertEqual(originalSize, 651)
     }
+    func testNamesFirstScanAndRequestedMetadataColumns() async throws {
+        _ = try await db.wire.pipeline((0..<1000).map { [data("SET"), data("viewport:\($0)"), data("v")] })
+        func stats() async throws -> [String: String] { RedisDatabase.parseInfo(try await db.wire.execute(["INFO", "commandstats"]).string ?? "") }
+        func calls(_ stats: [String: String], _ command: String) -> Int {
+            Int(stats["cmdstat_" + command]?.split(separator: ",").first?.dropFirst(6) ?? "0") ?? 0
+        }
+        let before = try await stats()
+        var cursor = "0", all: [RedisKey] = []
+        repeat {
+            let page = try await db.scan(cursor: cursor, pattern: "viewport:*", includeMetadata: false)
+            cursor = page.cursor; all += page.keys
+        } while cursor != "0"
+        let namesOnly = try await stats()
+        XCTAssertEqual(Set(all.map(\.id)).count, 1000)
+        XCTAssertEqual(calls(namesOnly, "type"), calls(before, "type")); XCTAssertEqual(calls(namesOnly, "pttl"), calls(before, "pttl"))
+        let visible = Array(all.prefix(40)).map(\.bytes)
+        let metadata = try await db.metadata(for: visible)
+        let first = try await stats()
+        XCTAssertEqual(metadata.count, 40)
+        XCTAssertEqual(calls(first, "type") - calls(namesOnly, "type"), 40)
+        XCTAssertEqual(calls(first, "pttl") - calls(namesOnly, "pttl"), 40)
+        _ = try await db.metadata(for: visible, includeTTL: false)
+        let hiddenTTL = try await stats(); XCTAssertEqual(calls(hiddenTTL, "pttl"), calls(first, "pttl"))
+        _ = try await db.metadata(for: visible, includeType: false)
+        let hiddenType = try await stats(); XCTAssertEqual(calls(hiddenType, "type"), calls(hiddenTTL, "type"))
+        _ = try await db.metadata(for: visible, knownKind: "string")
+        let known = try await stats(); XCTAssertEqual(calls(known, "type"), calls(hiddenType, "type"))
+        let filtered = try await db.scan(cursor: "0", pattern: "viewport:*", kind: "string", includeMetadata: false)
+        XCTAssertEqual(filtered.keys.first?.kind, .string)
+        let after = try await stats()
+        XCTAssertEqual(calls(after, "type"), calls(known, "type")); XCTAssertEqual(calls(after, "pttl"), calls(known, "pttl"))
+    }
     func testBoundedScanPauseAndResumeKeepsConnectionUsable() async throws {
         _ = try await db.wire.pipeline((0..<650).map { [data("SET"), data("bounded:\($0)"), data("v")] })
         let session = KeyScanSession(budget: ScanBudget(results: 100, requests: 2))

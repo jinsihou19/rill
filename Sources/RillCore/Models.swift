@@ -97,12 +97,11 @@ public struct RedisKey: Identifiable, Equatable, Sendable {
     public let ttlError: RedisError?
     public let memory: Int64?
     public let memoryError: RedisError?
-    public let metadataLoaded: Bool
     public init(bytes: Data, kind: KeyKind = .unknown, ttl: Int64? = nil, rawType: String? = nil,
                 typeError: RedisError? = nil, ttlError: RedisError? = nil, memory: Int64? = nil,
-                memoryError: RedisError? = nil, metadataLoaded: Bool = true) {
+                memoryError: RedisError? = nil) {
         self.bytes = bytes; self.kind = kind; self.ttl = ttl; self.rawType = rawType ?? (kind == .unknown ? nil : kind.rawValue)
-        self.typeError = typeError; self.ttlError = ttlError; self.memory = memory; self.memoryError = memoryError; self.metadataLoaded = metadataLoaded
+        self.typeError = typeError; self.ttlError = ttlError; self.memory = memory; self.memoryError = memoryError
     }
     public var ttlLabel: String {
         guard let ttl else { return "TTL 未知" }
