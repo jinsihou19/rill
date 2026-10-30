@@ -4,14 +4,9 @@ import RillCore
 struct KeyDetailView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selectedRow: String?
-    private var textEditable: Bool {
-        guard let page = model.detail, let data = page.content else { return false }
-        return !page.isTruncated && !data.contains(0) && String(data: data, encoding: .utf8) != nil
-    }
-    private var isTextValue: Bool {
-        guard let data = model.detail?.content else { return false }
-        return !data.contains(0) && String(data: data, encoding: .utf8) != nil
-    }
+    @State private var showChanges = false
+    private var textEditable: Bool { model.textValueEditable }
+    private var isTextValue: Bool { model.decodedValue?.text != nil }
     var body: some View {
         Group {
             if model.isLoadingDetail && model.detail == nil {
@@ -78,38 +73,56 @@ struct KeyDetailView: View {
             HStack(spacing: 10) {
                 Picker("值的显示格式", selection: $model.valueFormat) {
                     Text("文本").tag("文本"); Text("JSON").tag("JSON"); Text("Hex").tag("Hex")
-                }.labelsHidden().pickerStyle(.segmented).frame(width: 200)
+                }.labelsHidden().pickerStyle(.segmented).frame(width: 150)
+                Picker("解码方式", selection: Binding(get: { model.valueCodec }, set: { model.chooseValueCodec($0) })) {
+                    ForEach(ValueCodec.allCases, id: \.self) { Text($0.title).tag($0) }
+                }.labelsHidden().frame(width: 130).disabled(model.busy)
                 Spacer()
                 if model.valueFormat != "Hex", textEditable {
-                    Button { model.formatJSON() } label: { Label("格式化 JSON", systemImage: "curlybraces") }.font(.system(size: 11)).disabled(!model.canWrite)
+                    Button { model.formatJSON() } label: { Image(systemName: "curlybraces") }.help("无损格式化 JSON 草稿").disabled(!model.canWrite)
                 }
-                Button { copyText(model.valueFormat == "Hex" || !isTextValue ? DataPresentation.hex(page.content ?? Data()) : model.draft); model.notify("值已复制") } label: { Image(systemName: "doc.on.doc") }.help("复制当前显示的值")
+                Button { copyText(model.valueFormat == "Hex" || !isTextValue ? model.valueHex : model.draft); model.notify("值已复制") } label: { Image(systemName: "doc.on.doc") }.help("复制当前显示的值")
             }.buttonStyle(.borderless).padding(.horizontal, 18).frame(height: 47)
             Divider()
             if page.isTruncated {
                 Label("仅预览前 1 MiB，共 \(byteCount(page.count))；为避免截断覆盖，此值不能编辑。", systemImage: "info.circle")
                     .font(.system(size: 11)).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.orange.opacity(0.05))
-            } else if !isTextValue {
+            } else if let failure = model.valueDecodeError {
+                Label(failure + " 原始字节已保留，可切回原始查看。", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 11)).foregroundStyle(.orange).padding(12)
+            } else if !isTextValue && !model.isPreparingValue {
                 Label("包含二进制数据，使用 Hex 查看或导出原始字节。", systemImage: "doc.zipper")
                     .font(.system(size: 11)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(12)
             }
-            if model.valueFormat == "Hex" || !isTextValue {
-                CodeTextView(text: .constant(DataPresentation.hex(page.content ?? Data())), editable: false, fontSize: 11)
+            if model.isPreparingValue {
+                ProgressView("转换中…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.valueFormat == "Hex" || !isTextValue {
+                CodeTextView(text: .constant(model.valueHex), editable: false, fontSize: 11)
             } else {
                 CodeTextView(text: $model.draft, editable: textEditable && model.activeProfile?.readOnly == false && !model.isWriting, json: model.valueFormat == "JSON")
-                    .accessibilityIdentifier("valueEditor")
+                    .id(page.key.id + model.valueCodec.rawValue).accessibilityIdentifier("valueEditor")
             }
             HStack {
                 if model.dirty { Circle().fill(.orange).frame(width: 5, height: 5); Text("未保存").foregroundStyle(.secondary) }
                 else { Text(!textEditable ? "只读预览" : model.activeProfile?.readOnly == true ? "只读连接" : "保存时检查冲突并保留 TTL").foregroundStyle(.tertiary) }
                 Spacer()
+                if let change = model.valueChange, model.dirty {
+                    Button("写入 \(change.replacementBytes) B") { showChanges.toggle() }
+                        .popover(isPresented: $showChanges) {
+                            Text("原始值 \(change.originalBytes) 字节 → 写入 \(change.replacementBytes) 字节\n从偏移 \(change.firstChangedByte) 起，替换 \(change.removedBytes) 字节为 \(change.insertedBytes) 字节。\n按 \(model.valueCodec.title) 逆向编码；保存时检查原值并保留 TTL。")
+                                .font(.system(size: 12)).padding(20)
+                        }
+                }
                 if model.dirty {
-                    Button("还原") { model.draft = page.content.flatMap { String(data: $0, encoding: .utf8) } ?? "" }.disabled(model.isWriting)
+                    Button("还原") { model.restoreValueDraft() }.disabled(model.isWriting)
                 }
                 Button("保存修改") { model.saveString() }.buttonStyle(.borderedProminent).keyboardShortcut("s", modifiers: .command)
                     .disabled(!model.canWrite || !model.dirty || !textEditable || model.valueFormat == "Hex")
             }.font(.system(size: 11)).padding(.horizontal, 19).frame(height: 54)
+            if let failure = model.valueEncodeError { Text(failure).font(.system(size: 11)).foregroundStyle(.orange).padding(8) }
         }
+        .onChange(of: model.draft) { model.refreshValuePresentation() }
+        .onChange(of: model.valueFormat) { model.refreshValuePresentation() }
     }
 
     private func collectionEditor(_ page: KeyPage) -> some View {

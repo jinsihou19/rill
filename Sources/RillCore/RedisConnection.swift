@@ -5,7 +5,7 @@ public final class RedisConnection: @unchecked Sendable {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "app.rill.redis.transport")
     private let timeout: TimeInterval
-    private var buffer = Data()
+    private var decoder = RESPStreamDecoder()
     private var opening: CheckedContinuation<Void, Error>?
     private var timer: DispatchWorkItem?
     private var requests: [Request] = []
@@ -106,15 +106,11 @@ public final class RedisConnection: @unchecked Sendable {
     private func receive() {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { [weak self] data, _, done, error in
             guard let self, !self.closed else { return }
-            if let data { self.buffer.append(data) }
             do {
-                guard self.buffer.count <= RESPCodec.maximumBytes else {
-                    throw RedisError.message("响应超过 32 MiB，请使用分段查询。")
-                }
-                while let result = try RESPCodec.decode(self.buffer) {
+                if let data { try self.decoder.append(data) }
+                while let value = try self.decoder.next() {
                     guard let request = self.active else { throw RedisError.message("收到未请求的响应，连接已关闭。") }
-                    self.buffer.removeFirst(result.consumed)
-                    self.replies.append(result.value)
+                    self.replies.append(value)
                     if self.replies.count == request.commands.count {
                         self.timer?.cancel(); self.active = nil
                         let values = self.replies; self.replies = []
@@ -143,7 +139,7 @@ public final class RedisConnection: @unchecked Sendable {
         opening?.resume(throwing: error); opening = nil
         active?.continuation.resume(throwing: error); active = nil
         for request in requests { request.continuation.resume(throwing: error) }
-        requests.removeAll(); buffer.removeAll(); replies.removeAll()
+        requests.removeAll(); decoder = RESPStreamDecoder(); replies.removeAll()
         connection.stateUpdateHandler = nil; connection.cancel()
         disconnectHandler?(error.localizedDescription); disconnectHandler = nil
     }

@@ -113,23 +113,27 @@ struct CodeTextView: NSViewRepresentable {
             guard let view = notification.object as? NSTextView else { return }
             parent.text = view.string; highlight(view)
         }
+        private var highlightTask: Task<Void, Never>?
+        private var previousSource: String?
+        private var previousJSON = false
         func highlight(_ view: NSTextView) {
+            let source = view.string, json = parent.json
+            guard source != previousSource || json != previousJSON else { return }
+            previousSource = source; previousJSON = json; highlightTask?.cancel()
             guard let layout = view.layoutManager else { return }
-            let range = NSRange(location: 0, length: view.string.utf16.count)
+            let range = NSRange(location: 0, length: source.utf16.count)
             layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
-            guard parent.json, range.length < 200_000 else { return }
-            let pattern = #""(?:[^"\\]|\\.)*"|\b(?:true|false|null)\b|-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?"#
-            guard let expression = try? NSRegularExpression(pattern: pattern) else { return }
-            let source = view.string as NSString
-            for match in expression.matches(in: view.string, range: range) {
-                let token = source.substring(with: match.range)
-                let color: NSColor = token.hasPrefix("\"") ? .systemGreen : ["true", "false", "null"].contains(token) ? .systemPurple : .systemOrange
-                layout.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: match.range)
-            }
-            let keyPattern = #""(?:[^"\\]|\\.)*"(?=\s*:)"#
-            if let keys = try? NSRegularExpression(pattern: keyPattern) {
-                for match in keys.matches(in: view.string, range: range) { layout.addTemporaryAttribute(.foregroundColor, value: NSColor.systemBlue, forCharacterRange: match.range) }
+            guard json, range.length < 200_000 else { return }
+            highlightTask = Task { @MainActor [weak view] in
+                let spans = await Task.detached(priority: .userInitiated) { JSONHighlight.spans(source) }.value
+                guard !Task.isCancelled, let view, view.string == source, let layout = view.layoutManager else { return }
+                for span in spans {
+                    let color: NSColor
+                    switch span.kind { case .key: color = .systemBlue; case .string: color = .systemGreen; case .literal: color = .systemPurple; case .number: color = .systemOrange }
+                    layout.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: span.range)
+                }
             }
         }
+        deinit { highlightTask?.cancel() }
     }
 }

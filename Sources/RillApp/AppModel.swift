@@ -59,6 +59,17 @@ final class AppModel: ObservableObject {
     @Published var detail: KeyPage?
     @Published var draft = ""
     @Published var valueFormat = "文本"
+    @Published private(set) var valueCodec: ValueCodec = .raw
+    @Published private(set) var decodedValue: DecodedValue?
+    @Published private(set) var valueDecodeError: String?
+    @Published private(set) var isPreparingValue = false
+    @Published private(set) var valueHex = ""
+    @Published private(set) var valueChange: ValueChangeSummary?
+    @Published private(set) var valueEncodeError: String?
+    private var cleanDraft = ""
+    private var valueGeneration = UUID()
+    private var valueWorker: Task<DecodedValue, Error>?
+    private var valuePresentation: Task<Void, Never>?
     @Published var search = ""
     @Published var searchMode: KeySearchMode = .pattern
     @Published var typeFilter = ""
@@ -112,17 +123,14 @@ final class AppModel: ObservableObject {
     private var afterConfirmation: (() -> Void)?
 
     var connected: Bool { database != nil && !connectionLost }
-    var busy: Bool { isConnecting || isLoadingKeys || isStoppingScan || isLoadingDetail || isWriting || isConsoleRunning || diagnosticsLoading }
+    var busy: Bool { isConnecting || isLoadingKeys || isStoppingScan || isLoadingDetail || isWriting || isConsoleRunning || diagnosticsLoading || isPreparingValue }
     var canSearch: Bool { connected && !isConnecting && !isWriting && !isConsoleRunning }
     var isPatternSearch: Bool { scanQuery.mode == .pattern }
     var keyListRevision: UUID { keyGeneration }
     var canWrite: Bool { connected && activeProfile?.readOnly == false && !busy }
     var latency: Double { database?.latency ?? 0 }
-    var dirty: Bool {
-        guard let detail, let content = detail.content, !detail.isTruncated,
-              let original = String(data: content, encoding: .utf8), !content.contains(0) else { return false }
-        return draft != original
-    }
+    var textValueEditable: Bool { decodedValue?.text != nil && detail?.isTruncated == false && !isPreparingValue }
+    var dirty: Bool { decodedValue?.text != nil && detail?.isTruncated == false && draft != cleanDraft }
     var visibleKeys: [RedisKey] { favoritesOnly ? keys.filter { favorites.contains(favoriteID($0.id)) } : keys }
     var currentKey: RedisKey? { detail?.key }
 
@@ -147,7 +155,7 @@ final class AppModel: ObservableObject {
     func guardDraft(_ action: @escaping () -> Void) {
         if dirty {
             confirmation = ConfirmationRequest(title: "放弃未保存的修改？", message: "当前值有未保存的修改。离开后这些修改会丢失。", button: "放弃修改", destructive: true) { [weak self] in
-                self?.draft = self?.detail?.content.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                self?.restoreValueDraft()
                 action()
             }
         } else { action() }
@@ -195,7 +203,7 @@ final class AppModel: ObservableObject {
         consoleResetTask = Task { await previousReset?.value; await session.close() }
         metadataDebounce?.cancel(); visibleKeyObservers = [:]; keyIndex = [:]; isReadingMetadata = false
         connectTask?.cancel(); scanTask?.cancel(); detailTask?.cancel(); database?.close(); database = nil
-        keys = []; selectedKeyID = nil; detail = nil; draft = ""; scanFinished = false; totalKeys = nil; capabilityStates = []
+        clearValue(); keys = []; selectedKeyID = nil; detail = nil; draft = ""; scanFinished = false; totalKeys = nil; capabilityStates = []
         serverInfo = [:]; slowQueries = []; consoleEntries = []; consoleInput = ""
         connectionLost = false
         isConnecting = false; isLoadingKeys = false; isStoppingScan = false; isLoadingDetail = false; isWriting = false; diagnosticsLoading = false; isConsoleRunning = false
@@ -215,7 +223,7 @@ final class AppModel: ObservableObject {
         if reset && dirty { guardDraft { [weak self] in self?.loadKeys(reset: true, preserveSelection: preserveSelection, focusKey: focusKey) }; return }
         if !reset && (scanFinished || isLoadingKeys || isStoppingScan) { return }
         let previousKey = focusKey ?? (preserveSelection ? detail?.key.bytes ?? keys.first(where: { $0.id == selectedKeyID })?.bytes : nil)
-        if reset && !preserveSelection { detailGeneration = UUID(); selectedKeyID = nil; detail = nil; draft = "" }
+        if reset && !preserveSelection { detailGeneration = UUID(); selectedKeyID = nil; detail = nil; clearValue() }
         if reset {
             if let old = scanSession { Task { await old.pause() } }
             keyGeneration = UUID(); keys = []; scanFinished = false; scanState = .budget
@@ -260,9 +268,9 @@ final class AppModel: ObservableObject {
                 if reset {
                     if let selectedPage {
                         detail = selectedPage; selectedKeyID = selectedPage.key.id
-                        draft = selectedPage.content.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                        prepareValue(selectedPage)
                     }
-                    else { selectedKeyID = nil; detail = nil; draft = "" }
+                    else { selectedKeyID = nil; detail = nil; clearValue() }
                 }
             } catch {
                 guard token == generation, keyToken == keyGeneration else { return }
@@ -374,25 +382,20 @@ final class AppModel: ObservableObject {
     }
     private func startDetail(_ id: String?) {
         guard let id, let key = keys.first(where: { $0.id == id }), let db = database else {
-            selectedKeyID = nil; detail = nil; draft = ""; return
+            selectedKeyID = nil; detail = nil; clearValue(); return
         }
         // The serialized transport finishes an old read before starting the next one; results are generation checked.
         detailGeneration = UUID(); let detailToken = detailGeneration, token = generation
         let changingKey = selectedKeyID != id
-        selectedKeyID = id; detail = nil; draft = ""; isLoadingDetail = true
+        selectedKeyID = id; detail = nil; clearValue(resetCodec: changingKey); isLoadingDetail = true
         if changingKey { valueFormat = "文本" }
         detailTask = Task {
             do {
                 let page = try await db.inspect(key.bytes)
                 let states = await db.capabilities.snapshot()
                 guard token == generation, detailToken == detailGeneration else { return }
-                detail = page; draft = page.content.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                detail = page; prepareValue(page, autoFormat: changingKey)
                 capabilityStates = states
-                if let data = page.content {
-                    if data.contains(0) || String(data: data, encoding: .utf8) == nil { valueFormat = "Hex" }
-                    else if changingKey, (draft.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") || draft.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[")),
-                            (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil { valueFormat = "JSON" }
-                }
                 isLoadingDetail = false
             } catch {
                 guard token == generation, detailToken == detailGeneration else { return }
@@ -430,7 +433,7 @@ final class AppModel: ObservableObject {
                     guard self.generation == token else { return }
                     self.isWriting = false; self.notify(title + "完成")
                     // Mark the old snapshot clean only after the write has succeeded.
-                    if let page = self.detail, let content = page.content { self.draft = String(data: content, encoding: .utf8) ?? "" }
+                    self.cleanDraft = self.draft
                     if focusKey != nil { self.tab = .browser }
                     self.loadKeys(reset: true, focusKey: focusKey)
                 } catch {
@@ -445,21 +448,87 @@ final class AppModel: ObservableObject {
                                                destructive: destructive, action: execute)
         } else { execute() }
     }
-    func saveString() {
-        guard let page = detail, let original = page.content, !page.isTruncated, dirty else { return }
-        let text = draft
-        if valueFormat == "JSON" {
-            do { _ = try JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]) }
-            catch { self.error = "JSON 格式无效：\(error.localizedDescription)"; return }
+    private func clearValue(resetCodec: Bool = true) {
+        valueGeneration = UUID(); valueWorker?.cancel(); valuePresentation?.cancel()
+        decodedValue = nil; valueDecodeError = nil; isPreparingValue = false
+        draft = ""; cleanDraft = ""; valueHex = ""; valueChange = nil; valueEncodeError = nil
+        if resetCodec { valueCodec = .raw }
+    }
+    private func prepareValue(_ page: KeyPage, autoFormat: Bool = false) {
+        let codec = valueCodec
+        clearValue(resetCodec: false)
+        guard let original = page.content else { return }
+        let revision = valueGeneration
+        isPreparingValue = true
+        let worker = Task.detached(priority: .userInitiated) { try DecodedValue(original: original, codec: codec) }
+        valueWorker = worker
+        Task {
+            do {
+                let value = try await worker.value
+                guard revision == valueGeneration, !worker.isCancelled else { return }
+                decodedValue = value; draft = value.text ?? ""; cleanDraft = draft
+                if value.text == nil { valueFormat = "Hex" }
+                else if autoFormat { valueFormat = value.isJSON ? "JSON" : "文本" }
+            } catch {
+                guard revision == valueGeneration, !worker.isCancelled else { return }
+                valueDecodeError = error.localizedDescription; valueFormat = "Hex"
+            }
+            isPreparingValue = false; refreshValuePresentation()
         }
-        mutate("保存值") { try await $0.saveString(key: page.key.bytes, expected: original, replacement: Data(text.utf8)) }
+    }
+    func chooseValueCodec(_ codec: ValueCodec) {
+        guard codec != valueCodec, !busy, let page = detail else { return }
+        guardDraft { [weak self] in self?.valueCodec = codec; self?.prepareValue(page, autoFormat: true) }
+    }
+    func restoreValueDraft() { draft = cleanDraft; refreshValuePresentation() }
+    func refreshValuePresentation() {
+        valuePresentation?.cancel()
+        guard let original = detail?.content, !isPreparingValue else { return }
+        let revision = valueGeneration, text = draft, codec = valueCodec, decoded = decodedValue
+        let hex = valueFormat == "Hex" || decoded?.text == nil
+        valueChange = nil; valueEncodeError = nil
+        valuePresentation = Task {
+            do { try await Task.sleep(nanoseconds: 150_000_000) } catch { return }
+            let result = await Task.detached(priority: .userInitiated) { () -> (String?, ValueChangeSummary?, String?) in
+                let bytes = decoded?.text == nil ? decoded?.bytes ?? original : Data(text.utf8)
+                let hexText = hex ? DataPresentation.hex(bytes) : nil
+                do { return (hexText, ValueChangeSummary(original: original, replacement: try codec.encode(bytes)), nil) }
+                catch { return (hexText, nil, error.localizedDescription) }
+            }.value
+            guard !Task.isCancelled, revision == valueGeneration, text == draft else { return }
+            if let hex = result.0 { valueHex = hex }
+            valueChange = result.1; valueEncodeError = result.2
+        }
+    }
+    func saveString() {
+        guard let page = detail, let original = page.content, textValueEditable, dirty, canWrite else { return }
+        let text = draft, codec = valueCodec, json = valueFormat == "JSON", revision = valueGeneration
+        isPreparingValue = true
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<Data, Error> in
+                Result { let data = Data(text.utf8); if json { try JSONText.validate(data) }; return try codec.encode(data) }
+            }.value
+            guard revision == valueGeneration else { return }
+            isPreparingValue = false
+            do {
+                let encoded = try result.get()
+                mutate("保存值", message: "将写入 \(encoded.count) 字节，保留当前 TTL 并检查原值冲突。") {
+                    try await $0.saveString(key: page.key.bytes, expected: original, replacement: encoded)
+                }
+            } catch { presentError(error) }
+        }
     }
     func formatJSON() {
-        do {
-            let object = try JSONSerialization.jsonObject(with: Data(draft.utf8), options: [.fragmentsAllowed])
-            let output = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed, .withoutEscapingSlashes])
-            draft = String(decoding: output, as: UTF8.self); valueFormat = "JSON"; notify("JSON 已格式化，保存后生效")
-        } catch { self.error = "JSON 格式无效：\(error.localizedDescription)" }
+        guard textValueEditable else { return }
+        let revision = valueGeneration, text = draft
+        isPreparingValue = true
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { Result { try JSONText.formatted(Data(text.utf8)) } }.value
+            guard revision == valueGeneration else { return }
+            isPreparingValue = false
+            do { draft = String(decoding: try result.get(), as: UTF8.self); valueFormat = "JSON"; refreshValuePresentation(); notify("JSON 已格式化，保存后生效") }
+            catch { presentError(error) }
+        }
     }
     func deleteCurrentKey() {
         guard let key = detail?.key else { return }

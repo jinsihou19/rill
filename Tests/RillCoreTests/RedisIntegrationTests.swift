@@ -54,6 +54,26 @@ final class RedisIntegrationTests: XCTestCase {
     override func tearDown() async throws { db?.close(); db = nil; server = nil }
     private func data(_ text: String) -> Data { Data(text.utf8) }
 
+    func testEncodedValueSaveKeepsTTLChecksRawConflictAndRetainsSnapshot() async throws {
+        for codec in ValueCodec.allCases {
+            let key = data("codec:" + codec.rawValue), original = try codec.encode(data("original"))
+            _ = try await db.wire.execute([data("SET"), key, original, data("PX"), data("120000")])
+            let page = try await db.inspect(key)
+            let decoded = try DecodedValue(original: XCTUnwrap(page.content), codec: codec)
+            XCTAssertEqual(decoded.text, "original")
+            let replacement = try codec.encode(data("edited 中文"))
+            try await db.saveString(key: key, expected: original, replacement: replacement)
+            let stored = try await db.wire.execute([data("GET"), key])
+            XCTAssertEqual(try codec.decode(XCTUnwrap(stored.data)), data("edited 中文"))
+            let ttl = try await db.wire.execute([data("PTTL"), key])
+            XCTAssertGreaterThan(ttl.number ?? 0, 0); XCTAssertLessThanOrEqual(ttl.number ?? Int64.max, page.key.ttl ?? 0)
+            do { try await db.saveString(key: key, expected: original, replacement: original); XCTFail("Stale encoded bytes must conflict") } catch { }
+            XCTAssertEqual(page.content, original)
+            _ = try await db.wire.execute([data("DEL"), key])
+            do { try await db.saveString(key: key, expected: replacement, replacement: original); XCTFail("Missing value must not be recreated") } catch { }
+        }
+    }
+
     func testExactLookupInLargeKeyspaceNeverScans() async throws {
         let commands = (0..<100).map { batch -> [Data] in
             [data("MSET")] + (0..<1000).flatMap { [data("large:\(batch * 1000 + $0)"), data("v")] }

@@ -142,12 +142,21 @@ public enum DataPresentation {
         return key(prefix) + (data.count > prefix.count ? "…（\(data.count) 字节）" : "")
     }
     public static func hex(_ data: Data) -> String {
-        stride(from: 0, to: data.count, by: 16).map { offset in
-            let end = min(offset + 16, data.count)
-            let chunk = data.subdata(in: offset..<end)
-            let hex = chunk.map { String(format: "%02X", $0) }.joined(separator: " ")
-            let ascii = chunk.map { (32...126).contains($0) ? String(UnicodeScalar($0)) : "." }.joined()
-            return String(format: "%08X  ", offset) + hex.padding(toLength: 48, withPad: " ", startingAt: 0) + "  " + ascii
-        }.joined(separator: "\n")
+        guard !data.isEmpty else { return "" }
+        let digits = Array("0123456789ABCDEF".utf8), bytes = [UInt8](data)
+        var output = [UInt8](); output.reserveCapacity((bytes.count + 15) / 16 * 77)
+        for offset in stride(from: 0, to: bytes.count, by: 16) {
+            if offset > 0 { output.append(10) }
+            for shift in stride(from: 28, through: 0, by: -4) { output.append(digits[(offset >> shift) & 15]) }
+            output.append(contentsOf: [32, 32])
+            let end = min(offset + 16, bytes.count)
+            for index in 0..<16 {
+                if offset + index < end { let b = bytes[offset + index]; output.append(digits[Int(b >> 4)]); output.append(digits[Int(b & 15)]); output.append(32) }
+                else { output.append(contentsOf: [32, 32, 32]) }
+            }
+            output.append(contentsOf: [32, 32])
+            for b in bytes[offset..<end] { output.append((32...126).contains(b) ? b : 46) }
+        }
+        return String(decoding: output, as: UTF8.self)
     }
 }

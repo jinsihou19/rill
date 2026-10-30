@@ -18,7 +18,7 @@
 
 - 多连接、环境标识、ACL 认证、系统信任证书 TLS、连接测试、DB 切换、只读模式。
 - SCAN/MATCH/TYPE 分页浏览、前缀分组、键收藏、TTL 和内存信息。
-- String 文本/JSON/Hex、JSON 校验与格式化、保留 TTL 的原子冲突检查保存。
+- String 文本/JSON/Hex、无损 JSON 格式化、Base64/Gzip 及组合解码；预览逆向编码后的写入字节数，保留 TTL 与原始值冲突检查。
 - Hash 字段编辑、List 索引编辑/尾部追加、Set 增删、ZSet 分值编辑、Stream 查看/增删条目。
 - 六种类型新建键、RENAMENX 重命名、过期时间、UNLINK 删除、当前已加载页导出。
 - 独立连接的命令工作台、引号/转义、命令建议、内存历史、耗时与复制。
