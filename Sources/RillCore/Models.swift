@@ -137,6 +137,7 @@ public struct KeyPage: Sendable {
     public var nextOffset = 0
     public var hasMore = false
     public var isTruncated = false
+    public var readState: ScanStopReason?
 }
 
 public struct ScanPage: Sendable {

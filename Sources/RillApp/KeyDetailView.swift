@@ -5,12 +5,16 @@ struct KeyDetailView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selectedRow: String?
     @State private var showChanges = false
+    @State private var localMemberFilter = ""
     private var textEditable: Bool { model.textValueEditable }
     private var isTextValue: Bool { model.decodedValue?.text != nil }
     var body: some View {
         Group {
             if model.isLoadingDetail && model.detail == nil {
-                ProgressView("读取数据…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 12) {
+                    ProgressView(model.isStoppingMembers ? "正在停止；等待当前响应…" : "读取数据…")
+                    Button("停止读取") { model.stopMemberRead() }.disabled(model.isStoppingMembers)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let page = model.detail {
                 VStack(spacing: 0) {
                     header(page)
@@ -129,14 +133,30 @@ struct KeyDetailView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(page.key.kind == .stream ? "条目" : "成员").font(.system(size: 12, weight: .medium))
-                Text("\(page.rows.count) / \(page.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                Text("\(page.rows.count) / \(page.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).help("已加载匹配数 / 此键总成员数；后者不是匹配总数")
                 Spacer()
-                if page.key.kind == .stream { Text("按条目 ID 升序").font(.system(size: 10)).foregroundStyle(.tertiary) }
-                if page.key.kind == .zset { Text("按分值升序").font(.system(size: 10)).foregroundStyle(.tertiary) }
+                if page.key.kind == .stream { Text(model.memberQuery.newestFirst ? "最新优先" : "最早优先").font(.system(size: 10)).foregroundStyle(.tertiary) }
+                if page.key.kind == .zset { Text(model.memberQuery.pattern.isEmpty ? "按分值升序" : "游标扫描顺序").font(.system(size: 10)).foregroundStyle(.tertiary) }
                 Button { model.sheet = EditorSheet(kind: .row(nil)) } label: { Label("新增", systemImage: "plus") }.disabled(!model.canWrite).font(.system(size: 11))
             }.padding(.horizontal, 19).frame(height: 47)
             Divider()
-            Table(page.rows, selection: $selectedRow) {
+            if page.key.kind == .stream {
+                HStack(spacing: 8) {
+                    Picker("方向", selection: $model.streamNewestFirst) { Text("最新优先").tag(true); Text("最早优先").tag(false) }.labelsHidden().frame(width: 112)
+                    TextField("起始 ID / -", text: $model.streamStart).textFieldStyle(.roundedBorder).onSubmit { model.applyMemberQuery() }
+                    Text("至").foregroundStyle(.secondary)
+                    TextField("结束 ID / +", text: $model.streamEnd).textFieldStyle(.roundedBorder).onSubmit { model.applyMemberQuery() }
+                    Button("应用") { model.applyMemberQuery() }.disabled(model.busy)
+                }.font(.system(size: 11)).padding(12)
+            } else if page.key.kind == .list {
+                TextField("过滤已加载的 List 内容", text: $localMemberFilter).textFieldStyle(.roundedBorder).padding(12)
+            } else {
+                HStack {
+                    TextField("服务端 MATCH · 字段/成员 glob", text: $model.memberPattern).textFieldStyle(.roundedBorder).onSubmit { model.applyMemberQuery() }
+                    Button("查找") { model.applyMemberQuery() }.disabled(model.busy)
+                }.font(.system(size: 11)).padding(12)
+            }
+            Table(localMemberFilter.isEmpty || page.key.kind != .list ? page.rows : page.rows.filter { $0.valueText.localizedCaseInsensitiveContains(localMemberFilter) }, selection: $selectedRow) {
                 TableColumn(columnTitle(page.key.kind)) { row in
                     Text(row.fieldText).font(RillTheme.mono).lineLimit(2).textSelection(.enabled)
                 }.width(min: 95, ideal: page.key.kind == .stream ? 150 : 150, max: 250)
@@ -159,12 +179,17 @@ struct KeyDetailView: View {
             }.tableStyle(.inset(alternatesRowBackgrounds: true))
             if page.hasMore {
                 HStack {
-                    Text("集合在并发修改时，分页结果可能变化。").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    Text(page.readState == .paused ? "已停止，可继续" : "已加载范围；并发修改可能影响分页").font(.system(size: 10)).foregroundStyle(.tertiary)
                     Spacer()
-                    Button("加载下一页") { model.loadMoreRows() }.disabled(model.busy)
+                    if model.isLoadingDetail { Button(model.isStoppingMembers ? "正在停止…" : "停止") { model.stopMemberRead() }.disabled(model.isStoppingMembers) }
+                    else { Button("继续读取") { model.loadMoreRows() }.disabled(model.busy) }
                 }.padding(15)
             }
-        }
+            if page.readState == .capacity {
+                Text("已达 1 万成员 / 16 MiB 上限，请缩小筛选范围；当前结果不完整。")
+                    .font(.system(size: 11)).foregroundStyle(.orange).padding(12)
+            }
+        }.onChange(of: page.key.id) { localMemberFilter = ""; selectedRow = nil }
     }
     private func columnTitle(_ kind: KeyKind) -> String {
         switch kind { case .hash: return "Field"; case .list: return "Index"; case .stream: return "Entry ID"; default: return "Member" }

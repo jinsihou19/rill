@@ -108,7 +108,8 @@ public final class RedisDatabase: @unchecked Sendable {
 
     public func size() async throws -> Int64 { try await observed(["DBSIZE"], feature: "DBSIZE").checked().number ?? 0 }
 
-    public func inspect(_ key: Data, cursor: String = "0", offset: Int = 0) async throws -> KeyPage {
+    public func inspect(_ key: Data, cursor: String = "0", offset: Int = 0, query: MemberQuery = MemberQuery()) async throws -> KeyPage {
+        try query.validate()
         guard let row = try await metadata(for: [key], includeMemory: true).first else { throw RedisError.message("这个键已过期或被删除，请刷新键列表。") }
         if let error = row.typeError { throw error }
         let kind = row.kind
@@ -120,31 +121,45 @@ public final class RedisDatabase: @unchecked Sendable {
             page.count = try await run(args("STRLEN")).number ?? 0
             page.content = try await run(args("GETRANGE", ["0", String(Self.previewLimit - 1)])).data ?? Data()
             page.isTruncated = page.count > Self.previewLimit
-        case .hash, .set:
-            page.count = try await run(args(kind == .hash ? "HLEN" : "SCARD")).number ?? 0
-            let result = try await run(args(kind == .hash ? "HSCAN" : "SSCAN", [cursor, "COUNT", String(Self.pageSize)])).elements ?? []
-            guard result.count == 2 else { throw RedisError.message("集合分页响应无效。") }
-            page.cursor = result[0].string ?? "0"; page.hasMore = page.cursor != "0"
-            let values = result[1].elements ?? []
-            if kind == .hash {
-                page.rows = stride(from: 0, to: max(0, values.count - 1), by: 2).map { ValueRow(field: values[$0].data ?? Data(), value: values[$0 + 1].data ?? Data()) }
-            } else { page.rows = values.map { ValueRow(field: $0.data ?? Data(), value: $0.data ?? Data()) } }
-        case .list, .zset:
-            page.count = try await run(args(kind == .list ? "LLEN" : "ZCARD")).number ?? 0
-            let range = [String(offset), String(offset + Self.pageSize - 1)] + (kind == .zset ? ["WITHSCORES"] : [])
-            let values = try await run(args(kind == .list ? "LRANGE" : "ZRANGE", range)).elements ?? []
-            if kind == .list {
-                page.rows = values.enumerated().map { ValueRow(field: Data(String(offset + $0.offset).utf8), value: $0.element.data ?? Data(), index: offset + $0.offset) }
-            } else {
-                page.rows = stride(from: 0, to: max(0, values.count - 1), by: 2).map { ValueRow(field: values[$0].data ?? Data(), value: values[$0].data ?? Data(), score: values[$0 + 1].string ?? "0") }
+        case .hash, .set, .zset:
+            if kind == .zset, query.pattern.isEmpty {
+                page.count = try await run(args("ZCARD")).number ?? 0
+                let values = try await run(args("ZRANGE", [String(offset), String(offset + Self.pageSize - 1), "WITHSCORES"])).elements ?? []
+                guard values.count % 2 == 0 else { throw RedisError.message("成员与分值响应不成对。") }
+                page.rows = stride(from: 0, to: values.count, by: 2).map { ValueRow(field: values[$0].data ?? Data(), value: values[$0].data ?? Data(), score: values[$0 + 1].string) }
+                page.nextOffset = offset + page.rows.count; page.hasMore = page.nextOffset < page.count
+                return page
             }
+            let countCommand = kind == .hash ? "HLEN" : kind == .set ? "SCARD" : "ZCARD"
+            let scanCommand = kind == .hash ? "HSCAN" : kind == .set ? "SSCAN" : "ZSCAN"
+            page.count = try await run(args(countCommand)).number ?? 0
+            let filter = query.pattern.isEmpty ? [] : ["MATCH", query.pattern]
+            let result = try await run(args(scanCommand, [cursor, "COUNT", String(Self.pageSize)] + filter)).elements ?? []
+            guard result.count == 2, let next = result[0].string, let values = result[1].elements else { throw RedisError.message("集合分页响应无效。") }
+            page.cursor = next; page.hasMore = next != "0"
+            if kind == .set { page.rows = values.map { ValueRow(field: $0.data ?? Data(), value: $0.data ?? Data()) } }
+            else {
+                guard values.count % 2 == 0 else { throw RedisError.message("成员字段/值响应不成对。") }
+                page.rows = stride(from: 0, to: values.count, by: 2).map {
+                    ValueRow(field: values[$0].data ?? Data(), value: kind == .hash ? values[$0 + 1].data ?? Data() : values[$0].data ?? Data(), score: kind == .zset ? values[$0 + 1].string : nil)
+                }
+            }
+        case .list:
+            page.count = try await run(args("LLEN")).number ?? 0
+            let values = try await run(args("LRANGE", [String(offset), String(offset + Self.pageSize - 1)])).elements ?? []
+            page.rows = values.enumerated().map { ValueRow(field: Data(String(offset + $0.offset).utf8), value: $0.element.data ?? Data(), index: offset + $0.offset) }
             page.nextOffset = offset + page.rows.count; page.hasMore = page.nextOffset < page.count
         case .stream:
             page.count = try await run(args("XLEN")).number ?? 0
-            let values = try await run(args("XRANGE", [cursor == "0" ? "-" : "(" + cursor, "+", "COUNT", String(Self.pageSize)])).elements ?? []
-            page.rows = values.compactMap { item in
-                guard let pair = item.elements, pair.count == 2, let id = pair[0].data else { return nil }
-                let fields = pair[1].elements ?? []
+            let first = query.newestFirst ? query.streamEnd : query.streamStart
+            let last = query.newestFirst ? query.streamStart : query.streamEnd
+            let boundary = cursor == "0" ? first : "(" + cursor
+            let values = try await run(args(query.newestFirst ? "XREVRANGE" : "XRANGE", [boundary, last, "COUNT", String(Self.pageSize)])).elements ?? []
+            page.rows = try values.map { item in
+                guard let pair = item.elements, pair.count == 2, let id = pair[0].data,
+                      let fields = pair[1].elements, fields.count % 2 == 0, fields.allSatisfy({ $0.data != nil }) else {
+                    throw RedisError.message("Stream 条目或字段对响应无效。")
+                }
                 let pairs = stride(from: 0, to: max(0, fields.count - 1), by: 2).map { ["field": DataPresentation.text(fields[$0].data ?? Data()), "value": DataPresentation.text(fields[$0 + 1].data ?? Data())] }
                 let data = (try? JSONSerialization.data(withJSONObject: pairs, options: [.prettyPrinted, .sortedKeys])) ?? Data()
                 return ValueRow(field: id, value: data, streamFields: fields.compactMap(\.data))

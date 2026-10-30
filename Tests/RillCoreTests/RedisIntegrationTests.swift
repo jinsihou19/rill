@@ -74,6 +74,48 @@ final class RedisIntegrationTests: XCTestCase {
         }
     }
 
+    func testStreamDirectionsRangesAndExclusivePagesDuringConcurrentChanges() async throws {
+        let key = data("range-stream")
+        for batch in 0..<3 {
+            _ = try await db.wire.pipeline((0..<150).map { index in
+                [data("XADD"), key, data("\(1000 + batch * 150 + index)-0"), data("same"), Data([0, 255]), data("same"), data("second")]
+            })
+        }
+        let newest = try await db.inspect(key)
+        XCTAssertEqual(newest.rows.first?.fieldText, "1449-0"); XCTAssertEqual(newest.rows.last?.fieldText, "1250-0")
+        _ = try await db.wire.execute([data("XADD"), key, data("1450-0"), data("new"), data("v")])
+        _ = try await db.wire.execute([data("XDEL"), key, data("1240-0")])
+        let next = try await db.inspect(key, cursor: newest.cursor)
+        XCTAssertEqual(next.rows.first?.fieldText, "1249-0")
+        XCTAssertTrue(Set(newest.rows.map(\.id)).isDisjoint(with: Set(next.rows.map(\.id))))
+        XCTAssertEqual(newest.rows[0].streamFields, [data("same"), Data([0, 255]), data("same"), data("second")])
+        var query = MemberQuery(); query.newestFirst = false; query.streamStart = "1100-0"; query.streamEnd = "(1120-0"
+        let range = try await db.inspect(key, query: query)
+        XCTAssertEqual(range.rows.count, 20); XCTAssertEqual(range.rows.first?.fieldText, "1100-0"); XCTAssertEqual(range.rows.last?.fieldText, "1119-0")
+    }
+    func testServerMemberMatchingHashSetAndSortedSet() async throws {
+        for kind in [KeyKind.hash, .set, .zset] {
+            let key = data("match-" + kind.rawValue)
+            let command = kind == .hash ? "HSET" : kind == .set ? "SADD" : "ZADD"
+            let fields = (0..<600).flatMap { index -> [Data] in
+                let field = data((index % 2 == 0 ? "wanted:" : "other:") + String(index))
+                return kind == .hash ? [field, Data([0, 255])] : kind == .zset ? [data("1.2345678901234567"), field] : [field]
+            }
+            _ = try await db.wire.execute([data(command), key] + fields)
+            var query = MemberQuery(); query.pattern = "wanted:*"
+            let frozen = query, session = MemberReadSession()
+            var rows: [ValueRow] = [], more = true
+            while more {
+                let page = try await session.next { cursor, offset in try await self.db.inspect(key, cursor: cursor, offset: offset, query: frozen) }
+                rows += page.rows; more = page.hasMore
+            }
+            XCTAssertEqual(rows.count, 300); XCTAssertEqual(Set(rows.map(\.id)).count, 300)
+            XCTAssertTrue(rows.allSatisfy { $0.fieldText.hasPrefix("wanted:") })
+            if kind == .hash { XCTAssertTrue(rows.allSatisfy { $0.value == Data([0, 255]) }) }
+            if kind == .zset { XCTAssertTrue(rows.allSatisfy { $0.score == "1.2345678901234567" }) }
+        }
+    }
+
     func testExactLookupInLargeKeyspaceNeverScans() async throws {
         let commands = (0..<100).map { batch -> [Data] in
             [data("MSET")] + (0..<1000).flatMap { [data("large:\(batch * 1000 + $0)"), data("v")] }

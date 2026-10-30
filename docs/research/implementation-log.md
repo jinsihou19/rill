@@ -12,7 +12,8 @@
 | R06 多层命名空间 | 已实现，部分 UI 待解锁复验 | 树/边界/10 万键测量与存储隔离通过；原生键盘展开通过 |
 | R07 无损值编辑与转换 | 已实现，UI 待解锁复验 | 58 项测试通过；编码/CAS/TTL；分片与 Hex 离线基准 |
 | R08 帮助、搜索和工作位置 | 已实现，UI 待解锁复验 | 62 项测试通过；离线帮助、保留参数补全、内存历史与兼容存储 |
-| R09–R11 | 待实施 | — |
+| R09 Stream 与成员过滤 | 已实现，UI 待解锁复验 | 68 项测试通过；真实双向 Stream 与服务端 MATCH，预算/暂停/容量 |
+| R10–R11 | 待实施 | — |
 | R12–R14 | 后置独立能力 | — |
 
 ## R01：精确键查找
@@ -88,3 +89,12 @@
 - 对旧偏好 JSON 做字段默认兼容；原生 UserDefaults 合成 suite 验证二进制选择、搜索、编码偏好及连接/DB 隔离。Keychain 合成 CRUD、Release 构建与签名通过。
 - 全量 `swift test`：62 项，0 失败、0 跳过；新增 4 项覆盖离线目录、子命令、未闭合引号、参数保真、历史限额去重与保存搜索序列化。原生菜单、滚动恢复和快捷键焦点仍待 Mac 解锁验收。
 - 语法依据 [SET](https://redis.io/docs/latest/commands/set/)、[ZRANGE](https://redis.io/docs/latest/commands/zrange/)、[XRANGE](https://redis.io/docs/latest/commands/xrange/) 官方参考，离线目录保留常用子集，并提示服务器版本/权限可能限制；它不是执行策略或完整实时 COMMAND 镜像。
+
+## R09：最新 Stream 与有范围的成员过滤
+
+- Stream 默认 XREVRANGE 最新优先，支持方向和 ID 范围，续页使用排他 ID；不把重复字段变成字典。响应中的字段对先验证，再保留原始数组供编辑/导出使用。
+- Hash/Set 使用 HSCAN/SSCAN MATCH，带过滤的 ZSet 使用 ZSCAN MATCH 并标明游标顺序；未筛选 ZSet 继续按分值读取。List 只过滤已加载内容，入口明确范围。显示数 / 总数中的总数是此键成员总量，并非筛选后的总量。
+- 独立成员会话冻结原始键和查询，每批最多 200 行、8 次分页、500 ms 响应边界预算；累计 1 万成员 / 16 MiB。超过一页缓存、原始身份去重、空页及时返回，容量限制明确标为不完整。停止会消费当前回复并保留结果，不取消共享浏览 socket。
+- 查询/键切换检查详情代次；键列表刷新同时核对详情选择代次，避免晚到的恢复读取覆盖新选择。
+- 4 项专项覆盖超页、去重、空页预算、容量、协作暂停及边界校验；真实 Redis 验证 450 条 Stream 的双向/排他范围及分页间新增删除，重复字段/二进制数组保持；600 成员的 Hash/Set/ZSet 分别过滤得到 300 个唯一匹配项，分值字符串保持精度。全量 `swift test`：68 项，0 失败、0 跳过；Release 构建与签名通过。原生界面仍待 Mac 解锁。
+- 命令依据 [XREVRANGE](https://redis.io/docs/latest/commands/xrevrange/)、[ZSCAN](https://redis.io/docs/latest/commands/zscan/)；排他 Stream ID 需要 Redis 6.2+。SCAN 的成员结果不承诺一致性快照或稳定顺序。

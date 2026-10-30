@@ -53,6 +53,13 @@ final class AppModel: ObservableObject {
     @Published var scanState: ScanStopReason = .budget
     @Published var isLoadingDetail = false
     @Published var isWriting = false
+    @Published var memberPattern = ""
+    @Published var streamNewestFirst = true
+    @Published var streamStart = "-"
+    @Published var streamEnd = "+"
+    @Published var isStoppingMembers = false
+    @Published private(set) var memberQuery = MemberQuery()
+    private var memberSession: MemberReadSession?
     @Published var isConsoleRunning = false
     @Published var keys: [RedisKey] = []
     @Published var selectedKeyID: String?
@@ -206,7 +213,8 @@ final class AppModel: ObservableObject {
     }
     func disconnect() { guardDraft { [weak self] in self?.reset(); self?.activeProfile = nil } }
     private func reset() {
-        generation = UUID(); detailGeneration = UUID(); keyGeneration = UUID(); scanSession = nil
+        generation = UUID(); detailGeneration = UUID(); keyGeneration = UUID(); scanSession = nil; memberSession = nil; isStoppingMembers = false
+        memberQuery = MemberQuery(); memberPattern = ""; streamNewestFirst = true; streamStart = "-"; streamEnd = "+"
         namespaceBuild?.cancel(); namespaceGeneration = UUID(); namespaceTree = KeyNamespaceTree.build([]); isBuildingNamespaces = false
         let previousReset = consoleResetTask, session = consoleSession
         consoleResetTask = Task { await previousReset?.value; await session.close() }
@@ -242,7 +250,7 @@ final class AppModel: ObservableObject {
             scanQuery = (searchMode, search, typeFilter)
         }
         let token = generation, pattern = scanQuery.text.isEmpty ? "*" : scanQuery.text, kind = scanQuery.kind
-        let mode = scanQuery.mode, query = scanQuery.text, keyToken = keyGeneration
+        let mode = scanQuery.mode, query = scanQuery.text, keyToken = keyGeneration, selectionRevision = detailGeneration, selectedQuery = memberQuery
         let session = scanSession ?? KeyScanSession(); scanSession = session
         isLoadingKeys = true; isStoppingScan = false; error = nil
         scanTask = Task {
@@ -259,8 +267,10 @@ final class AppModel: ObservableObject {
                 guard token == generation, keyToken == keyGeneration else { return }
                 let count = reset ? (try? await db.size()) : nil
                 let selectedPage: KeyPage?
-                if reset, reason != .paused, let previousKey, mode == .pattern || additions.contains(where: { $0.bytes == previousKey }) { selectedPage = try? await db.inspect(previousKey) }
-                else { selectedPage = nil }
+                let selectedMembers = MemberReadSession()
+                if reset, reason != .paused, let previousKey, mode == .pattern || additions.contains(where: { $0.bytes == previousKey }) {
+                    selectedPage = try? await selectedMembers.next { cursor, offset in try await db.inspect(previousKey, cursor: cursor, offset: offset, query: selectedQuery) }
+                } else { selectedPage = nil }
                 let observedCapabilities = await db.capabilities.snapshot()
                 guard token == generation, keyToken == keyGeneration, !Task.isCancelled else { return }
                 capabilityStates = observedCapabilities
@@ -274,9 +284,9 @@ final class AppModel: ObservableObject {
                 if reset { totalKeys = count }
                 isLoadingKeys = false; isStoppingScan = false
                 if mode != .pattern, reset, !preserveSelection, let key = additions.first { startDetail(key.id); return }
-                if reset {
+                if reset, selectionRevision == detailGeneration {
                     if let selectedPage {
-                        detail = selectedPage; selectedKeyID = selectedPage.key.id
+                        detail = selectedPage; memberSession = selectedMembers; selectedKeyID = selectedPage.key.id
                         prepareValue(selectedPage)
                     }
                     else { selectedKeyID = nil; detail = nil; clearValue() }
@@ -412,39 +422,54 @@ final class AppModel: ObservableObject {
         if force { startDetail(id) } else { guardDraft(action) }
     }
     private func startDetail(_ id: String?) {
+        detailGeneration = UUID()
+        if let previous = memberSession { Task { await previous.pause() } }
         guard let id, let key = keys.first(where: { $0.id == id }), let db = database else {
-            selectedKeyID = nil; detail = nil; clearValue(); return
+            selectedKeyID = nil; detail = nil; memberSession = nil; isLoadingDetail = false; isStoppingMembers = false; clearValue(); return
         }
         // The serialized transport finishes an old read before starting the next one; results are generation checked.
-        detailGeneration = UUID(); let detailToken = detailGeneration, token = generation
+        let detailToken = detailGeneration, token = generation
         let changingKey = selectedKeyID != id
+        if changingKey { memberPattern = ""; streamNewestFirst = true; streamStart = "-"; streamEnd = "+"; memberQuery = MemberQuery() }
+        let session = MemberReadSession(), query = memberQuery
+        memberSession = session; isStoppingMembers = false
         selectedKeyID = id; detail = nil; clearValue(resetCodec: changingKey); isLoadingDetail = true
         if changingKey { valueFormat = "文本" }
         detailTask = Task {
             do {
-                let page = try await db.inspect(key.bytes)
+                let page = try await session.next { cursor, offset in try await db.inspect(key.bytes, cursor: cursor, offset: offset, query: query) }
                 let states = await db.capabilities.snapshot()
                 guard token == generation, detailToken == detailGeneration else { return }
                 detail = page; prepareValue(page, autoFormat: changingKey); saveBrowserPreferences()
                 capabilityStates = states
-                isLoadingDetail = false
+                isLoadingDetail = false; isStoppingMembers = false
             } catch {
                 guard token == generation, detailToken == detailGeneration else { return }
-                isLoadingDetail = false; presentError(error)
+                isLoadingDetail = false; isStoppingMembers = false; presentError(error)
             }
         }
     }
+    func applyMemberQuery() {
+        guard let id = selectedKeyID, !busy else { return }
+        var query = MemberQuery(); query.pattern = memberPattern; query.newestFirst = streamNewestFirst
+        query.streamStart = streamStart; query.streamEnd = streamEnd
+        do { try query.validate(); memberQuery = query; startDetail(id) } catch { presentError(error) }
+    }
+    func stopMemberRead() {
+        guard isLoadingDetail, let session = memberSession else { return }
+        isStoppingMembers = true; Task { await session.pause() }
+    }
     func loadMoreRows() {
-        guard let db = database, let previous = detail, previous.hasMore, !busy else { return }
-        let token = generation, selected = selectedKeyID
-        isLoadingDetail = true
+        guard let db = database, let previous = detail, let session = memberSession, previous.hasMore, !busy else { return }
+        let token = generation, selected = selectedKeyID, revision = detailGeneration, query = memberQuery
+        isLoadingDetail = true; isStoppingMembers = false
         Task {
             do {
-                var page = try await db.inspect(previous.key.bytes, cursor: previous.cursor, offset: previous.nextOffset)
-                guard token == generation, selected == selectedKeyID else { return }
+                var page = try await session.next { cursor, offset in try await db.inspect(previous.key.bytes, cursor: cursor, offset: offset, query: query) }
+                guard token == generation, selected == selectedKeyID, revision == detailGeneration else { return }
                 var seen = Set<String>(); page.rows = (previous.rows + page.rows).filter { seen.insert($0.id).inserted }
-                detail = page; isLoadingDetail = false
-            } catch { if token == generation { isLoadingDetail = false; presentError(error) } }
+                detail = page; isLoadingDetail = false; isStoppingMembers = false
+            } catch { if token == generation, revision == detailGeneration { isLoadingDetail = false; isStoppingMembers = false; presentError(error) } }
         }
     }
 
