@@ -154,30 +154,36 @@ struct DataEditor: View {
 }
 
 struct MetadataEditor: View {
-    enum Mode { case ttl, rename }
+    enum Mode { case ttl, rename, copy }
     let mode: Mode
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var value = ""
     @State private var permanent = false
+    @State private var keyMode: KeySearchMode = .exact
     @State private var error: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 19) {
-            SheetHeading(symbol: mode == .ttl ? "clock" : "pencil", title: mode == .ttl ? "设置过期时间" : "重命名键", subtitle: model.detail?.key.name ?? "").padding(-24)
+            SheetHeading(symbol: mode == .ttl ? "clock" : "pencil", title: mode == .ttl ? "设置过期时间" : mode == .copy ? "复制到新键" : "重命名键", subtitle: model.detail?.key.name ?? "").padding(-24)
             if mode == .ttl {
                 if model.detail?.key.ttl == nil { Text("当前 TTL 无法读取。应用后将使用你选择的新过期策略。").font(.caption).foregroundStyle(.orange) }
                 Toggle("永久有效", isOn: $permanent)
                 HStack { TextField("TTL", text: $value).textFieldStyle(.roundedBorder).disabled(permanent); Text("秒").foregroundStyle(.secondary) }
                 Text("从操作成功时开始计时，不更改键值。").font(.system(size: 11)).foregroundStyle(.secondary)
             } else {
-                TextField("新键名", text: $value).textFieldStyle(.roundedBorder).fontDesign(.monospaced)
-                Text("使用 RENAMENX，若目标已存在会拒绝覆盖。").font(.system(size: 11)).foregroundStyle(.secondary)
+                if mode == .copy {
+                    Picker("目标键输入", selection: $keyMode) { Text("字面键名").tag(KeySearchMode.exact); Text("Hex 字节").tag(KeySearchMode.hex) }.pickerStyle(.segmented)
+                }
+                TextField(mode == .copy && keyMode == .hex ? "目标原始字节，如 00 FF" : "新键名", text: $value).textFieldStyle(.roundedBorder).fontDesign(.monospaced)
+                Text(mode == .copy ? "在当前连接与 DB 使用 COPY，保留源键和过期时间；目标存在时拒绝覆盖。需要 Redis 6.2+ 与 COPY 权限。" : "使用 RENAMENX，若目标已存在会拒绝覆盖。").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             if let error { Text(error).font(.system(size: 11)).foregroundStyle(.red) }
             HStack { Spacer(); Button("取消") { dismiss() }.keyboardShortcut(.cancelAction); Button("应用") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) }
         }.padding(24).frame(width: 440).tint(RillTheme.accent).onAppear {
             if mode == .ttl { let ttl = model.detail?.key.ttl; permanent = ttl == -1; value = String(max(1, (ttl ?? 60_000) / 1000)) }
-            else { value = model.detail.flatMap { String(data: $0.key.bytes, encoding: .utf8) } ?? "" }
+            else if mode == .copy, let key = model.detail?.key.bytes, key.contains(0) || String(data: key, encoding: .utf8) == nil {
+                keyMode = .hex; value = key.map { String(format: "%02X", $0) }.joined(separator: " ")
+            } else { value = model.detail.flatMap { String(data: $0.key.bytes, encoding: .utf8) } ?? "" }
         }
     }
     private func save() {
@@ -188,9 +194,14 @@ struct MetadataEditor: View {
             else { guard let n = Int64(value), n > 0, n <= Int64.max / 1000 else { error = "请输入正整数秒。"; return }; seconds = n }
             model.finishEditor { model.mutate("更新 TTL") { try await $0.expire(key, seconds: seconds) } }
         } else {
-            let target = Data(value.utf8)
-            guard !target.isEmpty, target != key else { error = "请输入不同的非空键名。"; return }
-            model.finishEditor { model.mutate("重命名键", focusKey: target) { try await $0.rename(key, to: target) } }
+            do {
+                let target = mode == .copy ? try keyMode.exactKey(value) ?? Data(value.utf8) : Data(value.utf8)
+                guard target != key, mode == .copy || !target.isEmpty else { error = "请输入不同的目标键名。"; return }
+                model.finishEditor {
+                    if mode == .copy { model.mutate("复制键", focusKey: target) { try await $0.copyKey(key, to: target) } }
+                    else { model.mutate("重命名键", focusKey: target) { try await $0.rename(key, to: target) } }
+                }
+            } catch { self.error = error.localizedDescription }
         }
     }
 }

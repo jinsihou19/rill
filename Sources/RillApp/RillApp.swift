@@ -44,8 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if model?.isWriting == true || model?.isConsoleRunning == true {
-            model?.error = "操作正在进行，请等待结果后再退出。"; return .terminateCancel
+        if model?.isWriting == true || model?.isConsoleRunning == true || model?.isExportingKey == true {
+            model?.error = "操作正在进行，请等待结果或停止导出后再退出。"; return .terminateCancel
         }
         if model?.dirty == true {
             let alert = NSAlert(); alert.messageText = "退出并放弃未保存的修改？"; alert.informativeText = "当前键有未保存的修改。"

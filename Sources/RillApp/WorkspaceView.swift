@@ -65,6 +65,7 @@ struct WorkspaceView: View {
             case .row(let row): DataEditor(mode: .row(row))
             case .ttl: MetadataEditor(mode: .ttl)
             case .rename: MetadataEditor(mode: .rename)
+            case .copy: MetadataEditor(mode: .copy)
             }
         }
         .sheet(item: $model.confirmation, onDismiss: model.confirmationDismissed) { request in ConfirmationView(request: request) }
@@ -284,6 +285,10 @@ struct WorkspaceView: View {
                 Text("已连接"); Text("·"); Text(verbatim: model.activeProfile.map { $0.host + ":" + String($0.port) } ?? "").fontDesign(.monospaced)
                 if model.activeProfile?.tls == true { Image(systemName: "lock.shield"); Text("TLS") }
                 Spacer()
+                if model.isExportingKey {
+                    Text(model.exportProgress.map { "导出 \($0.entries) 条 · \($0.fileBytes.formatted()) B" } ?? "准备导出…")
+                    Button("停止导出") { model.stopKeyExport() }.buttonStyle(.borderless)
+                }
                 if model.busy { ProgressView().controlSize(.mini) }
                 if let version = model.serverInfo["redis_version"] { Text("Redis \(version)"); Text("·") }
                 Text(String(format: "握手 %.1f ms", model.latency))

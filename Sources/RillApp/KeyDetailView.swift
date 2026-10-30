@@ -50,6 +50,8 @@ struct KeyDetailView: View {
                 Menu {
                     Button("复制键名", systemImage: "doc.on.doc") { copyText(page.key.name); model.notify("键名已复制") }
                     Button("导出当前页", systemImage: "square.and.arrow.up") { model.exportCurrentPage() }
+                    Button("完整导出此键…", systemImage: "square.and.arrow.up.on.square") { model.exportFullKey() }.disabled(model.isExportingKey || page.key.kind == .unknown)
+                    Button("复制到新键…", systemImage: "plus.square.on.square") { model.sheet = EditorSheet(kind: .copy) }.disabled(!model.canWrite)
                     Divider()
                     Button("重命名", systemImage: "pencil") { model.sheet = EditorSheet(kind: .rename) }.disabled(!model.canWrite)
                     Button("设置过期时间", systemImage: "clock") { model.sheet = EditorSheet(kind: .ttl) }.disabled(!model.canWrite)

@@ -125,7 +125,7 @@ public final class RedisDatabase: @unchecked Sendable {
             if kind == .zset, query.pattern.isEmpty {
                 page.count = try await run(args("ZCARD")).number ?? 0
                 let values = try await run(args("ZRANGE", [String(offset), String(offset + Self.pageSize - 1), "WITHSCORES"])).elements ?? []
-                guard values.count % 2 == 0 else { throw RedisError.message("成员与分值响应不成对。") }
+                guard values.count % 2 == 0, values.allSatisfy({ $0.data != nil }) else { throw RedisError.message("成员与分值响应无效。") }
                 page.rows = stride(from: 0, to: values.count, by: 2).map { ValueRow(field: values[$0].data ?? Data(), value: values[$0].data ?? Data(), score: values[$0 + 1].string) }
                 page.nextOffset = offset + page.rows.count; page.hasMore = page.nextOffset < page.count
                 return page
@@ -137,6 +137,7 @@ public final class RedisDatabase: @unchecked Sendable {
             let result = try await run(args(scanCommand, [cursor, "COUNT", String(Self.pageSize)] + filter)).elements ?? []
             guard result.count == 2, let next = result[0].string, let values = result[1].elements else { throw RedisError.message("集合分页响应无效。") }
             page.cursor = next; page.hasMore = next != "0"
+            guard values.allSatisfy({ $0.data != nil }) else { throw RedisError.message("成员响应无效。") }
             if kind == .set { page.rows = values.map { ValueRow(field: $0.data ?? Data(), value: $0.data ?? Data()) } }
             else {
                 guard values.count % 2 == 0 else { throw RedisError.message("成员字段/值响应不成对。") }
@@ -225,6 +226,13 @@ public final class RedisDatabase: @unchecked Sendable {
         guard replacement.count <= Self.previewLimit else { throw RedisError.message("编辑值不能超过 1 MiB。") }
         let script = "if redis.call('TYPE',KEYS[1]).ok~='string' then return 0 end if redis.call('GET',KEYS[1])~=ARGV[1] then return 0 end redis.call('SET',KEYS[1],ARGV[2],'KEEPTTL'); return 1"
         try requireSuccess(try await atomic(script, key: key, args: [expected, replacement]))
+    }
+    public func copyKey(_ source: Data, to destination: Data) async throws {
+        try writable()
+        guard source != destination else { throw RedisError.message("复制目标必须与源键不同。") }
+        let reply = try await wire.pipeline([[Data("COPY".utf8), source, destination]])[0]
+        await capabilities.observe("COPY", reply: reply)
+        guard try reply.checked().number == 1 else { throw RedisError.message("源键已不存在或目标已存在，未覆盖任何目标。") }
     }
     public func saveRow(key: Data, kind: KeyKind, row: ValueRow, replacement: Data, score: String? = nil, total: Int64) async throws {
         let script: String

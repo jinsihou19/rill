@@ -15,7 +15,7 @@ enum WorkspaceTab: String, CaseIterable, Identifiable {
 
 struct EditorSheet: Identifiable {
     enum Kind {
-        case connection(ConnectionProfile, String), newKey, row(ValueRow?), ttl, rename
+        case connection(ConnectionProfile, String), newKey, row(ValueRow?), ttl, rename, copy
     }
     let id = UUID()
     let kind: Kind
@@ -61,6 +61,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var memberQuery = MemberQuery()
     private var memberSession: MemberReadSession?
     @Published var isConsoleRunning = false
+    @Published var isExportingKey = false
+    @Published var exportProgress: KeyExportProgress?
+    private var exportTask: Task<Void, Never>?
+    private var exportDatabase: RedisDatabase?
+    private var exportRevision = UUID()
     @Published var keys: [RedisKey] = []
     @Published var selectedKeyID: String?
     @Published var detail: KeyPage?
@@ -146,7 +151,7 @@ final class AppModel: ObservableObject {
     private var afterConfirmation: (() -> Void)?
 
     var connected: Bool { database != nil && !connectionLost }
-    var busy: Bool { isConnecting || isLoadingKeys || isStoppingScan || isLoadingDetail || isWriting || isConsoleRunning || diagnosticsLoading || isPreparingValue }
+    var busy: Bool { isConnecting || isLoadingKeys || isStoppingScan || isLoadingDetail || isWriting || isConsoleRunning || diagnosticsLoading || isPreparingValue || isExportingKey }
     var canSearch: Bool { connected && !isConnecting && !isWriting && !isConsoleRunning }
     var isPatternSearch: Bool { scanQuery.mode == .pattern }
     var keyListRevision: UUID { keyGeneration }
@@ -224,7 +229,7 @@ final class AppModel: ObservableObject {
     }
     func disconnect() { guardDraft { [weak self] in self?.reset(); self?.activeProfile = nil } }
     private func reset() {
-        stopDiagnostics(); trend = InfoTrend(); memoryAnalysis = nil; slowlogReport = nil
+        stopDiagnostics(); stopKeyExport(); trend = InfoTrend(); memoryAnalysis = nil; slowlogReport = nil
         generation = UUID(); detailGeneration = UUID(); keyGeneration = UUID(); scanSession = nil; memberSession = nil; isStoppingMembers = false
         memberQuery = MemberQuery(); memberPattern = ""; streamNewestFirst = true; streamStart = "-"; streamEnd = "+"
         namespaceBuild?.cancel(); namespaceGeneration = UUID(); namespaceTree = KeyNamespaceTree.build([]); isBuildingNamespaces = false
@@ -786,6 +791,39 @@ final class AppModel: ObservableObject {
         analysisRevision = UUID(); analysisTask?.cancel(); analysisTask = nil; analysisDatabase?.close(); analysisDatabase = nil; isAnalyzingMemory = false
     }
     func stopDiagnostics() { stopTrend(); stopMemoryAnalysis() }
+    func exportFullKey() {
+        guard let key = detail?.key, let profile = activeProfile, connected, !isExportingKey else { return }
+        let panel = NSSavePanel(); panel.nameFieldStringValue = "redis-key.jsonl"
+        panel.title = "完整导出此键（实时分段读取，非一致性快照）"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let token = generation
+        exportRevision = UUID(); let revision = exportRevision
+        isExportingKey = true; exportProgress = nil
+        exportTask = Task {
+            var db: RedisDatabase?
+            defer { db?.close(); if revision == exportRevision { exportDatabase = nil; isExportingKey = false } }
+            do {
+                let secret = profile.id == demoID ? "" : try keychain.password(for: profile.id)
+                let database = try await RedisDatabase.connect(profile, password: secret, timeout: 5); db = database
+                guard token == generation, revision == exportRevision, !Task.isCancelled else { return }
+                exportDatabase = database
+                let result = try await KeyExporter.exportFile(key: key.bytes, database: database, destination: url, update: { [weak self] progress in
+                    await self?.receiveKeyExport(progress, revision: revision)
+                })
+                guard revision == exportRevision else { return }
+                if result.footer.complete { notify("完整键值已导出：" + result.url.lastPathComponent) }
+                else { error = (result.footer.failure ?? "导出不完整") + "\n文件保留于：" + result.url.path }
+            } catch { if revision == exportRevision { presentError(error) } }
+        }
+    }
+    private func receiveKeyExport(_ progress: KeyExportProgress, revision: UUID) {
+        if revision == exportRevision { exportProgress = progress }
+    }
+    func stopKeyExport() {
+        guard isExportingKey else { return }
+        exportTask?.cancel(); exportDatabase?.close()
+        // The exporter writes an incomplete footer and reports its .partial file before finishing.
+    }
     func exportCurrentPage() {
         guard let page = detail else { return }
         let panel = NSSavePanel(); panel.nameFieldStringValue = "redis-value." + (page.content == nil ? "json" : "txt")

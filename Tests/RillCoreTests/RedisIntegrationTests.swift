@@ -142,6 +142,124 @@ final class RedisIntegrationTests: XCTestCase {
         let ping = try await db.wire.execute(["PING"]); XCTAssertEqual(ping.string, "PONG")
     }
 
+    func testFullExportAllTypesBinaryRoundTripAndCopyRefusesOverwrite() async throws {
+        let binary = Data([0, 255, 13, 10]), field = Data([255, 0])
+        for kind in KeyKind.editable {
+            let key = Data([0, 255]) + data(kind.rawValue), destination = data("restore:" + kind.rawValue), copy = data("copy:" + kind.rawValue)
+            if kind == .string { _ = try await db.wire.execute([data("SET"), key, binary]) }
+            if kind == .hash { _ = try await db.wire.execute([data("HSET"), key, Data(), binary, field, Data()]) }
+            if kind == .list { _ = try await db.wire.execute([data("RPUSH"), key, Data(), binary]) }
+            if kind == .set { _ = try await db.wire.execute([data("SADD"), key, Data(), binary]) }
+            if kind == .zset { _ = try await db.wire.execute([data("ZADD"), key, data("1.2345678901234567"), binary, data("-0.00000001"), Data()]) }
+            if kind == .stream { _ = try await db.wire.pipeline((0..<200).map { [data("XADD"), key, data("\(1000 + $0)-0"), field, binary, field, Data()] }) }
+            _ = try await db.wire.execute([data("PEXPIRE"), key, data("120000")])
+            let output = ExportBuffer()
+            var limits = KeyExportLimits(); if kind == .stream { limits.maximumRecords = 200 }
+            let footer = try await KeyExporter.export(key: key, database: db, limits: limits, write: { try output.write($0) })
+            XCTAssertTrue(footer.complete, footer.failure ?? "")
+            let lines = try decodeExport(output.data), header = try XCTUnwrap(lines.first?.header)
+            XCTAssertEqual(header.version, 1); XCTAssertEqual(Data(base64Encoded: header.keyBase64), key)
+            XCTAssertEqual(header.expiryMode, "absolute-unix-milliseconds"); XCTAssertEqual(footer.sha256, exportDigest(output.data))
+            let entries = lines.compactMap(\.entry)
+            for entry in entries {
+                let command: [Data]
+                switch kind {
+                case .string: command = [data("APPEND"), destination, try XCTUnwrap(entry.value)]
+                case .hash: command = [data("HSET"), destination, try XCTUnwrap(entry.field), try XCTUnwrap(entry.value)]
+                case .list: command = [data("RPUSH"), destination, try XCTUnwrap(entry.value)]
+                case .set: command = [data("SADD"), destination, try XCTUnwrap(entry.value)]
+                case .zset: command = [data("ZADD"), destination, data(try XCTUnwrap(entry.score)), try XCTUnwrap(entry.field)]
+                case .stream: command = [data("XADD"), destination, try XCTUnwrap(entry.field)] + (entry.streamFields ?? [])
+                case .unknown: throw RedisError.message("Unexpected kind")
+                }
+                _ = try await db.wire.execute(command)
+            }
+            _ = try await db.wire.execute([data("PEXPIREAT"), destination, data(String(try XCTUnwrap(header.expiresAtUnixMilliseconds)))])
+            let original = try await db.inspect(key), restored = try await db.inspect(destination)
+            XCTAssertEqual(original.count, restored.count)
+            if kind == .string { XCTAssertEqual(original.content, restored.content) }
+            else { XCTAssertEqual(Set(original.rows.map(\.id)), Set(restored.rows.map(\.id))); for row in original.rows { XCTAssertEqual(restored.rows.first { $0.id == row.id }, row) } }
+            let originalExpiry = try await db.wire.execute([data("PEXPIRETIME"), key]), restoredExpiry = try await db.wire.execute([data("PEXPIRETIME"), destination])
+            XCTAssertEqual(originalExpiry, restoredExpiry)
+            try await db.copyKey(key, to: copy)
+            let copyExpiry = try await db.wire.execute([data("PEXPIRETIME"), copy]); XCTAssertEqual(copyExpiry, originalExpiry)
+            let dumpedOriginal = try await db.wire.execute([data("DUMP"), key]), dumpedCopy = try await db.wire.execute([data("DUMP"), copy]); XCTAssertEqual(dumpedOriginal, dumpedCopy)
+            do { try await db.copyKey(key, to: copy); XCTFail("Must not overwrite") } catch { }
+        }
+        let readonly = try await server.connect(readOnly: true); defer { readonly.close() }
+        do { try await readonly.copyKey(data("source"), to: data("dest")); XCTFail() } catch { }
+        _ = try await db.wire.execute([data("SET"), data("empty-export"), Data()])
+        let empty = ExportBuffer(), emptyFooter = try await KeyExporter.export(key: data("empty-export"), database: db, write: { try empty.write($0) })
+        XCTAssertTrue(emptyFooter.complete); XCTAssertEqual(emptyFooter.entries, 0)
+        XCTAssertEqual(try decodeExport(empty.data).first?.header?.expiryMode, "permanent")
+    }
+    func testFullExportLargeStringPartialFileCancellationChangeAndDiskFailure() async throws {
+        let key = data("large-export"), bytes = Data((0..<(2 * 1024 * 1024 + 17)).map { UInt8($0 % 256) })
+        _ = try await db.wire.execute([data("SET"), key, bytes])
+        let output = ExportBuffer(), footer = try await KeyExporter.export(key: key, database: db, write: { try output.write($0) })
+        XCTAssertTrue(footer.complete); XCTAssertEqual(footer.payloadBytes, Int64(bytes.count))
+        XCTAssertEqual(try decodeExport(output.data).compactMap(\.entry).compactMap(\.value).reduce(Data(), +), bytes)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("existing.jsonl"); try data("keep-existing").write(to: destination)
+        var limits = KeyExportLimits(); limits.maximumPages = 1
+        let partial = try await KeyExporter.exportFile(key: key, database: db, destination: destination, limits: limits)
+        XCTAssertFalse(partial.footer.complete); XCTAssertTrue(partial.url.pathExtension == "partial")
+        XCTAssertEqual(try Data(contentsOf: destination), data("keep-existing"))
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: partial.url.path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        let completed = try await KeyExporter.exportFile(key: key, database: db, destination: destination)
+        XCTAssertTrue(completed.footer.complete); XCTAssertEqual(completed.url, destination)
+        let file = try Data(contentsOf: destination)
+        XCTAssertEqual(try decodeExport(file).last?.footer?.sha256, exportDigest(file))
+        XCTAssertEqual(try decodeExport(file).compactMap(\.entry).compactMap(\.value).reduce(Data(), +), bytes)
+        var sizeLimit = KeyExportLimits(); sizeLimit.maximumFileBytes = 4096
+        let smallOutput = ExportBuffer(), sizeLimited = try await KeyExporter.export(key: key, database: db, limits: sizeLimit, write: { try smallOutput.write($0) })
+        XCTAssertFalse(sizeLimited.complete); XCTAssertLessThanOrEqual(smallOutput.data.count, 4096)
+        let failedDisk = ExportBuffer(failAfter: 1)
+        do { _ = try await KeyExporter.export(key: key, database: db, write: { try failedDisk.write($0) }); XCTFail() } catch { }
+        let cancelled = ExportBuffer()
+        let task = Task { try await KeyExporter.export(key: key, database: self.db, write: { try cancelled.write($0) }, update: { _ in withUnsafeCurrentTask { $0?.cancel() } }) }
+        let stopped = try await task.value; XCTAssertFalse(stopped.complete); XCTAssertTrue(stopped.failure?.contains("停止") == true)
+        let changed = ExportBuffer()
+        let result = try await KeyExporter.export(key: key, database: db, write: { try changed.write($0) }, update: { progress in
+            if progress.entries == 1 { _ = try? await self.db.wire.execute(["DEL", "large-export"]) }
+        })
+        XCTAssertFalse(result.complete)
+        XCTAssertFalse(try XCTUnwrap(try decodeExport(changed.data).last?.footer).complete)
+        let ping = try await db.wire.execute(["PING"]); XCTAssertEqual(ping.string, "PONG")
+    }
+
+    func testExportUnknownExpiryAndUnsupportedCopyHaveExplicitCapabilities() async throws {
+        _ = try await db.wire.execute(["SET", "unknown-expiry", "value"])
+        _ = try await db.wire.execute(["ACL", "SETUSER", "export-reader", "on", ">test", "~*", "+ping", "+type", "+strlen", "+getrange"])
+        let restricted = try await RedisDatabase.connect(ConnectionProfile(port: server.port, username: "export-reader", readOnly: true), password: "test")
+        defer { restricted.close() }
+        let output = ExportBuffer(), report = try await KeyExporter.export(key: data("unknown-expiry"), database: restricted, write: { try output.write($0) })
+        XCTAssertTrue(report.complete); XCTAssertEqual(try decodeExport(output.data).first?.header?.expiryMode, "unknown")
+        let fake = try ScriptedRedisServer { arguments in
+            switch String(data: arguments[0], encoding: .utf8) ?? "" {
+            case "PING": return Data("+PONG\r\n".utf8)
+            case "INFO": return Data("+redis_mode:standalone\r\n".utf8)
+            case "TYPE": return Data("+string\r\n".utf8)
+            case "STRLEN": return Data(":1\r\n".utf8)
+            case "GETRANGE": return Data("$1\r\nx\r\n".utf8)
+            case "PEXPIRETIME", "COPY": return Data("-ERR unknown command\r\n".utf8)
+            case "TIME": return Data("*2\r\n$10\r\n1700000000\r\n$6\r\n123000\r\n".utf8)
+            case "PTTL": return Data(":5000\r\n".utf8)
+            default: return Data("-ERR unsupported\r\n".utf8)
+            }
+        }
+        try await fake.start(); defer { fake.stop() }
+        let legacy = try await RedisDatabase.connect(ConnectionProfile(port: fake.port), password: ""); defer { legacy.close() }
+        let oldOutput = ExportBuffer(), legacyResult = try await KeyExporter.export(key: data("key"), database: legacy, write: { try oldOutput.write($0) })
+        XCTAssertTrue(legacyResult.complete)
+        let header = try XCTUnwrap(try decodeExport(oldOutput.data).first?.header)
+        XCTAssertEqual(header.expiryMode, "estimated-absolute-unix-milliseconds"); XCTAssertEqual(header.expiresAtUnixMilliseconds, 1_700_000_005_123)
+        do { try await legacy.copyKey(data("key"), to: data("target")); XCTFail() } catch { XCTAssertEqual((error as? RedisError)?.category, .unsupported) }
+        let states = await legacy.capabilities.snapshot(); XCTAssertEqual(states.first { $0.id == "COPY" }?.status, .unsupported)
+    }
+
     func testExactLookupInLargeKeyspaceNeverScans() async throws {
         let commands = (0..<100).map { batch -> [Data] in
             [data("MSET")] + (0..<1000).flatMap { [data("large:\(batch * 1000 + $0)"), data("v")] }

@@ -35,7 +35,7 @@ public struct ConnectionProfile: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
-public enum KeyKind: String, CaseIterable, Sendable {
+public enum KeyKind: String, CaseIterable, Codable, Sendable {
     case string, hash, list, set, zset, stream, unknown
     public var title: String { rawValue == "zset" ? "ZSet" : rawValue.capitalized }
     public var symbol: String {
