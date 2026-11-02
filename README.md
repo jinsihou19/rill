@@ -2,7 +2,7 @@
 
 一个专注日常开发的 macOS 原生 Redis 客户端。SwiftUI + AppKit，Network.framework 直连 Redis，密码保存到 macOS 钥匙串。无第三方 Swift 依赖，无 WebView、Electron 或 Node 运行时。
 
-开发版本已实施 R01–R11，逐项提交与实际验收状态见 [迁移实施记录](docs/research/implementation-log.md)。部分原生交互尚待验收，首版 v0.1.0 的历史说明保持独立。
+当前 **v0.2.0 开发版**已实施 R01–R11，新增功能见 [版本说明](docs/releases/v0.2.0.md)，逐项提交与实际验收状态见 [迁移实施记录](docs/research/implementation-log.md)。部分原生交互尚待验收，首版 v0.1.0 的历史说明保持独立。
 
 ## 运行
 
@@ -79,11 +79,11 @@ swift test
 - 收藏：应用 UserDefaults。工作台历史和慢查询只在内存中显示，退出清除。
 - 生产环境初选时默认只读；关闭只读后，写入需要输入连接名称。未知/模块命令按写入对待，只读模式拒绝执行。
 - 工作台禁止会话切换、事务、订阅、阻塞和服务器管理命令。数据库切换使用应用控件。
-- 字符串预览 1 MiB，超限不可保存，二进制值只读；原始字节可以导出。集合按页加载，导出仅含当前已加载行，以 base64 保留字节。
+- 字符串预览 1 MiB，超限不可保存；解码后仍是二进制的值只读。当前页导出只含已加载数据；完整单键导出另有明确预算、过期策略和完整性标记，详见 [导出格式](docs/key-export-format.md)。
 - 不自动重试写入。超时/断线时，操作结果可能未知，请刷新核对。
 - TLS 只接受系统信任的有效证书，不提供跳过验证开关；当前不提供自定义 CA 或客户端证书界面。
 - 暂不支持 Cluster/Sentinel 路由、内建 SSH、模块编辑器、Pub/Sub、全库迁移、批量删除、自动更新。
 
-当前首版为 **v0.1.0 开发版**。本地 Git 标签 `v0.1.0` 固定首版源码；后续研究和规划与产品实现分开记录。
+当前打包版本为 **v0.2.0 开发版**。本地 Git 标签 `v0.1.0` 固定首版源码；历史首版说明与后续研究、实现及验收记录分开保留。
 
 文档入口见 [文档目录](docs/README.md)：包含 [首版交付说明](docs/releases/v0.1.0.md)、[第一轮调研](docs/research-and-scope.md)、[源码深入研究](docs/research/source-deep-dive.md)、[迁移路线](docs/research/migration-roadmap.md) 和 [验证记录](docs/validation.md)。

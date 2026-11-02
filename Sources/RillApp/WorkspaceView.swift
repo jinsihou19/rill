@@ -8,6 +8,7 @@ struct WorkspaceView: View {
     @State private var selectedTreeItem: String?
     @State private var showSeparatorEditor = false
     @State private var separatorDraft = ":"
+    private var appVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版" }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility) {
@@ -134,7 +135,7 @@ struct WorkspaceView: View {
             Button { model.editConnection(nil) } label: {
                 Label("添加连接", systemImage: "plus.circle").font(.system(size: 12, weight: .medium)).frame(maxWidth: .infinity, alignment: .leading).padding(18)
             }.buttonStyle(.plain).disabled(model.busy)
-            HStack { Text("本地优先 · 密码存于钥匙串"); Spacer(); Text("0.1") }.font(.system(size: 9)).foregroundStyle(.tertiary).padding(.horizontal, 18).padding(.bottom, 15)
+            HStack { Text("本地优先 · 密码存于钥匙串"); Spacer(); Text(appVersion) }.font(.system(size: 9)).foregroundStyle(.tertiary).padding(.horizontal, 18).padding(.bottom, 15)
         }.background(.ultraThinMaterial)
     }
 
@@ -271,7 +272,7 @@ struct WorkspaceView: View {
                 welcomeFeature("command", "为键盘而生")
             }.padding(.top, 60)
             Spacer()
-            Text("Rill 0.1  /  为每一天的开发而造").font(.system(size: 10)).foregroundStyle(.tertiary).padding(.bottom, 25)
+            Text("Rill \(appVersion)  /  为每一天的开发而造").font(.system(size: 10)).foregroundStyle(.tertiary).padding(.bottom, 25)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(25)
     }
     private func welcomeFeature(_ icon: String, _ text: String) -> some View {
