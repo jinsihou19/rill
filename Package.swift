@@ -11,7 +11,8 @@ let package = Package(
     targets: [
         .target(name: "RillCore"),
         .executableTarget(name: "RillApp", dependencies: ["RillCore"]),
-        .testTarget(name: "RillCoreTests", dependencies: ["RillCore"])
+        .testTarget(name: "RillCoreTests", dependencies: ["RillCore"]),
+        .testTarget(name: "RillAppTests", dependencies: ["RillApp"])
     ],
     swiftLanguageModes: [.v5]
 )

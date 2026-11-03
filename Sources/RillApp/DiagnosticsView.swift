@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import AppKit
 import RillCore
 
 struct ConsoleView: View {
@@ -7,6 +8,8 @@ struct ConsoleView: View {
     @FocusState private var focused: Bool
     @State private var helpExpanded = true
     @State private var showHistory = false
+    @State private var historyInputSelection: CommandInputSelection?
+    @State private var historyFocusTask: Task<Void, Never>?
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -58,14 +61,15 @@ struct ConsoleView: View {
                             .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 4))
                     }
                     Spacer()
-                    Button { showHistory = true } label: {
+                    Button(action: openHistory) {
                         Label("历史 \(model.consoleHistory.commands.count)", systemImage: "clock.arrow.circlepath")
                     }.buttonStyle(.borderless).fixedSize().disabled(model.isConsoleRunning)
                         .keyboardShortcut("r", modifiers: .control).help("查找命令历史 · ⌃R").accessibilityIdentifier("consoleHistory")
                         .popover(isPresented: $showHistory, arrowEdge: .bottom) {
                             ConsoleHistoryView(history: model.consoleHistory, scope: "\(model.activeProfile?.name ?? "当前连接") · DB \(model.activeProfile?.database ?? 0)") { command in
+                                historyFocusTask?.cancel(); historyInputSelection = nil
                                 model.recallCommand(command); showHistory = false; focused = true
-                            } onCancel: { showHistory = false; focused = true }
+                            } onCancel: { cancelHistory() }
                         }
                 }
                 if let guide = CommandGuide.lookup(model.consoleInput) {
@@ -86,9 +90,27 @@ struct ConsoleView: View {
                     }.buttonStyle(.borderedProminent).keyboardShortcut(.return, modifiers: .command).disabled(showHistory || model.busy || model.consoleInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }.padding(12).background(RillTheme.canvas, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RillTheme.border))
             }.padding(20).background(RillTheme.panel.opacity(0.4))
-        }.onDisappear { model.stopDiagnostics() }
-            .onChange(of: model.activeProfile) { _, _ in showHistory = false }
+        }.onDisappear { historyFocusTask?.cancel(); historyInputSelection = nil; model.stopDiagnostics() }
+            .onChange(of: model.activeProfile) { _, _ in historyFocusTask?.cancel(); historyInputSelection = nil; showHistory = false }
             .onChange(of: model.isConsoleRunning) { _, running in if !running { focused = true } }
+    }
+    private func openHistory() {
+        guard !showHistory else { return }
+        historyFocusTask?.cancel()
+        historyInputSelection = CommandInputSelection.capture(in: NSApp.keyWindow, text: model.consoleInput)
+        showHistory = true
+    }
+    private func cancelHistory() {
+        let selection = historyInputSelection
+        historyInputSelection = nil; showHistory = false
+        historyFocusTask?.cancel()
+        historyFocusTask = Task { @MainActor in
+            // Let the popover release focus before restoring the native editing range.
+            await Task.yield()
+            guard !Task.isCancelled, !showHistory else { return }
+            if let selection { selection.restore(ifUnchanged: model.consoleInput) }
+            else { focused = true }
+        }
     }
     private var suggestions: [String] {
         let prefix = model.consoleInput.split(separator: " ").first.map(String.init)?.uppercased() ?? ""
