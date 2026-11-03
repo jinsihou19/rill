@@ -30,6 +30,18 @@ final class ProtocolTests: XCTestCase {
         for input in ["F", "00 ZZ", "0x123", "GG"] { XCTAssertThrowsError(try KeySearchMode.hex.exactKey(input)) }
         XCTAssertEqual(RedisGlob.escapedPrefix(Data("a*b?[x]\\".utf8)), Data("a\\*b\\?\\[x\\]\\\\*".utf8))
     }
+    func testFuzzySearchEscapesLiteralFragmentsAndEmptySearchBrowsesAllKeys() throws {
+        XCTAssertEqual(KeySearchMode.fuzzy.scanPattern("user"), "*user*")
+        XCTAssertEqual(KeySearchMode.fuzzy.scanPattern(" 中文:a*b?[x]\\ "), "* 中文:a\\*b\\?\\[x\\]\\\\ *")
+        XCTAssertNil(try KeySearchMode.fuzzy.exactKey("user"))
+        XCTAssertEqual(KeySearchMode.pattern.scanPattern("user:*"), "user:*")
+        XCTAssertNil(KeySearchMode.exact.scanPattern("user:*"))
+        XCTAssertNil(KeySearchMode.hex.scanPattern("00 FF"))
+        for mode in KeySearchMode.allCases { XCTAssertEqual(mode.scanPattern(""), "*") }
+        for mode in KeySearchMode.allCases {
+            XCTAssertEqual(try JSONDecoder().decode(KeySearchMode.self, from: JSONEncoder().encode(mode)), mode)
+        }
+    }
     func testBinaryRoundTripAndByteLengths() throws {
         let arguments = [Data("SET".utf8), Data("中文🔑".utf8), Data([0, 255, 13, 10, 42])]
         let encoded = RESPCodec.encode(arguments)

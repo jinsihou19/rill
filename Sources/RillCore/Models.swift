@@ -53,13 +53,30 @@ public enum KeyKind: String, CaseIterable, Codable, Sendable {
 }
 
 public enum KeySearchMode: String, CaseIterable, Codable, Sendable {
-    case pattern, exact, hex
+    case fuzzy, pattern, exact, hex
     public var title: String {
-        switch self { case .pattern: return "模式"; case .exact: return "精确键"; case .hex: return "Hex 键" }
+        switch self { case .fuzzy: return "模糊"; case .pattern: return "模式"; case .exact: return "精确键"; case .hex: return "Hex 键" }
+    }
+    public var placeholder: String {
+        switch self {
+        case .fuzzy: return "输入键名片段，回车搜索"
+        case .pattern: return "Redis glob，如 user:*"
+        case .exact: return "完整键名，按字面查找"
+        case .hex: return "原始字节，如 00 FF 3A"
+        }
+    }
+    public func scanPattern(_ input: String) -> String? {
+        // An empty search field returns to browsing in every mode.
+        if input.isEmpty { return "*" }
+        switch self {
+        case .fuzzy: return "*" + String(decoding: RedisGlob.escapedPrefix(Data(input.utf8)), as: UTF8.self)
+        case .pattern: return input
+        case .exact, .hex: return nil
+        }
     }
     public func exactKey(_ input: String) throws -> Data? {
         switch self {
-        case .pattern: return nil
+        case .fuzzy, .pattern: return nil
         case .exact: return Data(input.utf8)
         case .hex:
             var text = input.filter { !$0.isWhitespace }

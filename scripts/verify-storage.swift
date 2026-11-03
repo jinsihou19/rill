@@ -28,12 +28,17 @@ struct VerifyStorage {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let browser = BrowserPreferencesStore(defaults: defaults)
+        precondition(BrowserPreferences().searchMode == .fuzzy)
         var preferences = BrowserPreferences(); preferences.separator = "::"; preferences.expansion["folder:test"] = false
         preferences.searchMode = .hex; preferences.search = "00 FF"; preferences.kind = "string"
         preferences.selectedKey = Data([0, 255]); preferences.codec = .base64Gzip; preferences.format = "JSON"
-        preferences.searches = [SavedKeySearch(mode: .exact, text: " literal * key ", kind: "")]
+        preferences.searches = [SavedKeySearch(mode: .fuzzy, text: " literal * key ", kind: "")]
         let legacy = try JSONDecoder().decode(BrowserPreferences.self, from: Data(#"{"separator":"/","grouped":false,"expansion":{}}"#.utf8))
         precondition(legacy.separator == "/" && legacy.searchMode == .pattern && legacy.searches.isEmpty)
+        var exact = preferences; exact.searchMode = .exact; exact.searches[0].mode = .exact
+        let migrated = try JSONDecoder().decode(BrowserPreferences.self, from: JSONEncoder().encode(exact))
+        precondition(migrated.searchMode == .fuzzy && migrated.search == exact.search)
+        precondition(migrated.searches[0].mode == .fuzzy && migrated.searches[0].text == exact.searches[0].text)
         browser.save(preferences, for: list[0]); precondition(browser.load(list[0]) == preferences)
         var otherDB = list[0]; otherDB.database = 1
         precondition(browser.load(otherDB) == BrowserPreferences())

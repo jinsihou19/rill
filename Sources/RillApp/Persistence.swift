@@ -64,7 +64,7 @@ struct BrowserPreferences: Codable, Equatable {
     var separator = ":"
     var grouped = true
     var expansion: [String: Bool] = [:]
-    var searchMode: KeySearchMode = .pattern
+    var searchMode: KeySearchMode = .fuzzy
     var search = ""
     var kind = ""
     var selectedKey: Data?
@@ -81,6 +81,7 @@ struct BrowserPreferences: Codable, Equatable {
         grouped = try c.decodeIfPresent(Bool.self, forKey: .grouped) ?? true
         expansion = try c.decodeIfPresent([String: Bool].self, forKey: .expansion) ?? [:]
         searchMode = try c.decodeIfPresent(KeySearchMode.self, forKey: .searchMode) ?? .pattern
+        if searchMode == .exact { searchMode = .fuzzy }
         search = try c.decodeIfPresent(String.self, forKey: .search) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? ""
         selectedKey = try c.decodeIfPresent(Data.self, forKey: .selectedKey)
@@ -89,6 +90,7 @@ struct BrowserPreferences: Codable, Equatable {
         showTypes = try c.decodeIfPresent(Bool.self, forKey: .showTypes) ?? true
         showTTL = try c.decodeIfPresent(Bool.self, forKey: .showTTL) ?? true
         searches = Array((try c.decodeIfPresent([SavedKeySearch].self, forKey: .searches) ?? []).prefix(20))
+        for index in searches.indices where searches[index].mode == .exact { searches[index].mode = .fuzzy }
     }
 }
 

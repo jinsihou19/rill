@@ -160,15 +160,32 @@ struct WorkspaceView: View {
         HSplitView {
             VStack(spacing: 0) {
                 VStack(spacing: 10) {
-                    Picker("查找方式", selection: $model.searchMode) {
-                        ForEach(KeySearchMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                    }.pickerStyle(.segmented).disabled(!model.canSearch).accessibilityIdentifier("keySearchMode")
                     HStack(spacing: 7) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField(model.searchMode == .pattern ? "Redis glob，如 user:*" : model.searchMode == .hex ? "原始字节，如 00 FF 3A" : "完整键名，按字面查找", text: $model.search).textFieldStyle(.plain).font(.system(size: 12))
+                        TextField(model.searchMode.placeholder, text: Binding(get: { model.search }, set: { model.updateSearch($0) })).textFieldStyle(.plain).font(.system(size: 12))
                             .focused($searchFocused).onSubmit { model.loadKeys(reset: true, preserveSelection: false) }.disabled(!model.canSearch).accessibilityIdentifier("keySearch")
-                        if !model.search.isEmpty { Button { model.search = ""; model.loadKeys(reset: true, preserveSelection: false) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain).disabled(!model.canSearch) }
-                    }.padding(8).background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 7))
+                        if !model.search.isEmpty { Button { model.updateSearch("") } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain).disabled(!model.canSearch).accessibilityLabel("清空搜索").help("清空搜索并恢复键列表") }
+                        HStack(spacing: 2) {
+                            ForEach([KeySearchMode.fuzzy, .pattern, .hex], id: \.self) { mode in
+                                Button { model.changeSearchMode(mode) } label: {
+                                    Group {
+                                        switch mode {
+                                        case .fuzzy: Text("≈")
+                                        case .pattern: Text(".*")
+                                        case .exact: Text("=")
+                                        case .hex: Text("0x")
+                                        }
+                                    }.font(.system(size: 12, weight: .medium, design: .monospaced)).frame(width: 22, height: 22)
+                                        .foregroundStyle(model.searchMode == mode ? RillTheme.accent : .secondary)
+                                        .background(model.searchMode == mode ? RillTheme.accent.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 4))
+                                }.buttonStyle(.plain).disabled(!model.canSearch).help("\(mode.title)查找 · \(mode.placeholder)")
+                                    .accessibilityLabel("\(mode.title)查找").accessibilityValue(model.searchMode == mode ? "已选中" : "未选中")
+                                    .accessibilityAddTraits(model.searchMode == mode ? .isSelected : [])
+                                    .accessibilityIdentifier("keySearchMode.\(mode.rawValue)")
+                            }
+                        }.fixedSize().accessibilityElement(children: .contain).accessibilityLabel("查找方式").accessibilityIdentifier("keySearchMode")
+                    }.padding(.horizontal, 8).padding(.vertical, 5).background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(searchFocused ? RillTheme.accent.opacity(0.7) : .clear, lineWidth: 1))
                     HStack {
                         Picker("数据类型", selection: $model.typeFilter) {
                             Text("所有类型").tag("")

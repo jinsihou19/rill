@@ -401,6 +401,39 @@ final class RedisIntegrationTests: XCTestCase {
             XCTAssertGreaterThan(try XCTUnwrap(page.key.ttl), 110_000)
         }
     }
+    func testFuzzyKeySearchFindsLiteralFragmentsAndClearingRestoresFilteredKeys() async throws {
+        let names = [data("account:user:42"), data("user:profile"), data("cache:中文片段:1"),
+                     data("literal:a*b?[x]\\:value"), data("literal:axbbx:value"), Data([0, 255]) + data("user")]
+        _ = try await db.wire.pipeline(names.map { [data("SET"), $0, data("v")] })
+        _ = try await db.wire.execute([data("HSET"), data("hash:user:42"), data("f"), data("v")])
+        func search(_ text: String, mode: KeySearchMode = .fuzzy, kind: String = "") async throws -> Set<Data> {
+            let pattern = try XCTUnwrap(mode.scanPattern(text)), database = db!
+            let session = KeyScanSession(budget: ScanBudget(results: 2, requests: 1))
+            var found: Set<Data> = [], reason: ScanStopReason = .budget
+            repeat {
+                let batch = try await session.nextPage(fetchWithinBudget: { cursor, remaining in
+                    try await database.scan(cursor: cursor, pattern: pattern, kind: kind, maximumRequests: remaining, includeMetadata: false)
+                })
+                found.formUnion(batch.keys.map(\.bytes)); reason = batch.reason
+            } while reason == .budget
+            XCTAssertEqual(reason, .complete)
+            return found
+        }
+        let fragments = try await search("user")
+        XCTAssertEqual(fragments, Set([names[0], names[1], names[5], data("hash:user:42")]))
+        let unicode = try await search("中文片段")
+        XCTAssertEqual(unicode, Set([names[2]]))
+        let literalGlob = try await search("a*b?[x]\\")
+        XCTAssertEqual(literalGlob, Set([names[3]]))
+        let missing = try await search("no-such-key")
+        XCTAssertTrue(missing.isEmpty)
+        for mode in KeySearchMode.allCases {
+            let restored = try await search("", mode: mode, kind: "string")
+            XCTAssertEqual(restored, Set(names))
+        }
+        let pattern = try await search("user:*", mode: .pattern)
+        XCTAssertEqual(pattern, Set([names[1]]))
+    }
     func testCursorScanFilteringAndDatabaseIsolation() async throws {
         let commands = (0..<650).map { [data("SET"), data("scan:\($0)"), data("v")] }
         _ = try await db.wire.pipeline(commands)
