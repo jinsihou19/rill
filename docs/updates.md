@@ -25,7 +25,7 @@ v0.2.4 及更早版本没有更新组件，需要先手动安装支持更新的�
 
 ## 发布新版本
 
-1. 修改 `assets/Info.plist` 中的版本和递增构建号，补充 `docs/releases/v<版本>.md`，提交并推送 `main`。
+1. 修改 `assets/Info.plist` 中的版本和递增构建号，补充 `docs/releases/v<版本>.md`（链接使用完整 HTTPS 地址，保证更新窗口和 Release 中均可打开），提交并推送 `main`。
 2. 在 GitHub Actions 手动运行 **Package and publish rill**。
 3. 工作流测试后构建 `arm64 + x86_64` Universal 应用，生成 ZIP、SHA-256 和已签名 appcast，更新说明与 GitHub Release 使用同一份 Markdown。
 4. 发布成功后，工作流提交新的 `appcast.xml`；客户端下一次检查即可发现新版。
