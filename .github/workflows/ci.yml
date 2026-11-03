@@ -1,0 +1,23 @@
+name: macOS checks
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install Redis for isolated integration tests
+        run: command -v redis-server || brew install redis
+      - name: Test
+        run: swift test
+      - name: Build and verify app signature
+        run: ./scripts/build-app.sh
+      - name: Check helper scripts
+        run: |
+          zsh -n scripts/build-app.sh scripts/demo.sh scripts/verify-storage.sh
+          python3 -m py_compile scripts/demo.py scripts/verify-export.py

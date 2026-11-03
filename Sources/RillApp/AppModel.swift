@@ -123,9 +123,9 @@ final class AppModel: ObservableObject {
     @Published var diagnosticsLoading = false
     @Published private var connectionLost = false
     private(set) var database: RedisDatabase?
-    private let store = ProfileStore()
+    private let store: ProfileStore
     private let keychain = KeychainStore()
-    private let browserPreferences = BrowserPreferencesStore()
+    private let browserPreferences: BrowserPreferencesStore
     private var generation = UUID()
     private var detailGeneration = UUID()
     private var keyGeneration = UUID()
@@ -160,12 +160,19 @@ final class AppModel: ObservableObject {
     var dirty: Bool { decodedValue?.text != nil && detail?.isTruncated == false && draft != cleanDraft }
     var visibleKeys: [RedisKey] { favoritesOnly ? keys.filter { favorites.contains(favoriteID($0.id)) } : keys }
     var currentKey: RedisKey? { detail?.key }
+    var updateRestartBlocker: String? {
+        if isWriting || isConsoleRunning || isExportingKey { return "操作正在进行，请结束后再继续安装更新。" }
+        if dirty { return "当前键有未保存的修改，请保存或还原后再继续安装更新。" }
+        if sheet != nil || confirmation != nil { return "请先完成或取消当前编辑，再继续安装更新。" }
+        return nil
+    }
 
-    init() {
+    init(store: ProfileStore = ProfileStore(), browserPreferences: BrowserPreferencesStore = BrowserPreferencesStore()) {
+        self.store = store; self.browserPreferences = browserPreferences
         do { profiles = try store.load() } catch { self.error = "读取连接配置失败：\(error.localizedDescription)" }
         favorites = Set(UserDefaults.standard.stringArray(forKey: "favoriteKeys") ?? [])
         if let portText = ProcessInfo.processInfo.environment["RILL_DEMO_PORT"], let port = Int(portText) {
-            let profile = ConnectionProfile(name: "Rill 演示", port: port, environment: .local)
+            let profile = ConnectionProfile(name: "rill 演示", port: port, environment: .local)
             demoID = profile.id; profiles.append(profile)
             Task { connect(profile) }
         }
@@ -214,7 +221,7 @@ final class AppModel: ObservableObject {
                 db.wire.onDisconnect { [weak self] reason in
                     Task { @MainActor in
                         guard let self, self.generation == token else { return }
-                        self.connectionLost = true; self.error = reason
+                        self.connectionLost = true; self.error = self.error ?? reason
                     }
                 }
                 loadKeys(reset: true, focusKey: preferences.selectedKey)
@@ -269,7 +276,12 @@ final class AppModel: ObservableObject {
         if reset && dirty { guardDraft { [weak self] in self?.loadKeys(reset: true, preserveSelection: preserveSelection, focusKey: focusKey) }; return }
         if !reset && (scanFinished || isLoadingKeys || isStoppingScan) { return }
         let previousKey = focusKey ?? (preserveSelection ? detail?.key.bytes ?? keys.first(where: { $0.id == selectedKeyID })?.bytes : nil)
-        if reset && !preserveSelection { detailGeneration = UUID(); selectedKeyID = nil; detail = nil; clearValue() }
+        if reset && !preserveSelection {
+            detailGeneration = UUID()
+            if let previous = memberSession { Task { await previous.pause() } }
+            memberSession = nil; isLoadingDetail = false; isStoppingMembers = false
+            selectedKeyID = nil; detail = nil; clearValue()
+        }
         if reset {
             if let old = scanSession { Task { await old.pause() } }
             keyGeneration = UUID(); keys = []; scanFinished = false; scanState = .budget
@@ -523,7 +535,10 @@ final class AppModel: ObservableObject {
                     self.loadKeys(reset: true, focusKey: focusKey)
                 } catch {
                     guard self.generation == token else { return }
-                    self.isWriting = false; self.presentError(error)
+                    self.isWriting = false
+                    if case .transport = error as? RedisError {
+                        self.error = error.localizedDescription + "\n写入结果可能未知，请刷新核对。此操作未自动重试。"
+                    } else { self.presentError(error) }
                 }
             }
         }

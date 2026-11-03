@@ -3,6 +3,7 @@ import RillCore
 
 struct WorkspaceView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var updater: AppUpdater
     @State private var visibility: NavigationSplitViewVisibility = .all
     @FocusState private var searchFocused: Bool
     @State private var selectedTreeItem: String?
@@ -33,7 +34,7 @@ struct WorkspaceView: View {
             }.background(RillTheme.canvas)
         }
         .frame(minWidth: 1020, minHeight: 660)
-        .navigationTitle(model.activeProfile?.name ?? "Rill")
+        .navigationTitle(model.activeProfile?.name ?? "rill")
         .tint(RillTheme.accent)
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -86,7 +87,7 @@ struct WorkspaceView: View {
             HStack(spacing: 10) {
                 RillMark(size: 31)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Rill").font(.system(size: 19, weight: .semibold, design: .rounded))
+                    Text("rill").font(.system(size: 19, weight: .semibold, design: .rounded))
                     Text("REDIS FOR MAC").font(.system(size: 8, weight: .medium)).tracking(1.5).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -99,6 +100,7 @@ struct WorkspaceView: View {
                                 Label(tab.title, systemImage: tab.symbol).font(.system(size: 13, weight: model.tab == tab ? .medium : .regular))
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5)
                                     .foregroundStyle(model.tab == tab ? RillTheme.accent : Color.primary)
+                                    .contentShape(Rectangle())
                             }.buttonStyle(.plain).listRowBackground(model.tab == tab ? RillTheme.accent.opacity(0.08) : Color.clear)
                         }
                     }
@@ -132,6 +134,14 @@ struct WorkspaceView: View {
             }.listStyle(.sidebar).scrollContentBackground(.hidden)
             Spacer(minLength: 0)
             Divider().padding(.horizontal, 16)
+            if updater.waitingToInstall || updater.availableVersion != nil {
+                Button {
+                    if updater.waitingToInstall { updater.resumeInstallation() } else { updater.checkForUpdates() }
+                } label: {
+                    Label(updater.waitingToInstall ? "继续安装更新" : "更新到 \(updater.availableVersion ?? "")", systemImage: "arrow.down.circle")
+                        .font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                }.buttonStyle(.plain)
+            }
             Button { model.editConnection(nil) } label: {
                 Label("添加连接", systemImage: "plus.circle").font(.system(size: 12, weight: .medium)).frame(maxWidth: .infinity, alignment: .leading).padding(18)
             }.buttonStyle(.plain).disabled(model.busy)
@@ -289,7 +299,7 @@ struct WorkspaceView: View {
                 welcomeFeature("command", "为键盘而生")
             }.padding(.top, 60)
             Spacer()
-            Text("Rill \(appVersion)  /  为每一天的开发而造").font(.system(size: 10)).foregroundStyle(.tertiary).padding(.bottom, 25)
+            Text("rill \(appVersion)  /  为每一天的开发而造").font(.system(size: 10)).foregroundStyle(.tertiary).padding(.bottom, 25)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(25)
     }
     private func welcomeFeature(_ icon: String, _ text: String) -> some View {

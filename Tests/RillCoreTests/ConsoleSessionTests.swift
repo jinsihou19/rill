@@ -1,4 +1,5 @@
 import XCTest
+import RillTestSupport
 @testable import RillCore
 
 final class ConsoleSessionTests: XCTestCase {

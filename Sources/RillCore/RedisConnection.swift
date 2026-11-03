@@ -73,7 +73,7 @@ public final class RedisConnection: @unchecked Sendable {
             return try await withCheckedThrowingContinuation { continuation in
                 queue.async {
                     guard self.ready, !self.closed else {
-                        continuation.resume(throwing: RedisError.message("连接已断开，请重新连接。")); return
+                        continuation.resume(throwing: RedisError.transport("连接已断开，请重新连接。")); return
                     }
                     self.requests.append(Request(commands: commands, continuation: continuation))
                     self.sendNext()
@@ -135,6 +135,7 @@ public final class RedisConnection: @unchecked Sendable {
 
     private func fail(_ error: Error) {
         guard !closed else { return }
+        let error = RedisError.transport(error.localizedDescription)
         closed = true; ready = false; timer?.cancel()
         opening?.resume(throwing: error); opening = nil
         active?.continuation.resume(throwing: error); active = nil

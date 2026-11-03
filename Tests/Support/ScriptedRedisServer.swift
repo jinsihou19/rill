@@ -1,22 +1,22 @@
 import Foundation
 import Network
-@testable import RillCore
+import RillCore
 
-final class ScriptedRedisServer: @unchecked Sendable {
+public final class ScriptedRedisServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "rill.tests.scripted-server")
     private var connections: [NWConnection] = []
     private var received: [[Data]] = []
     private let respond: @Sendable ([Data]) -> Data?
-    var port: Int { Int(listener.port!.rawValue) }
+    public var port: Int { Int(listener.port!.rawValue) }
 
-    init(respond: @escaping @Sendable ([Data]) -> Data?) throws {
+    public init(respond: @escaping @Sendable ([Data]) -> Data?) throws {
         self.respond = respond
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
     }
-    func start() async throws {
+    public func start() async throws {
         try await withCheckedThrowingContinuation { (ready: CheckedContinuation<Void, Error>) in
             listener.stateUpdateHandler = { [weak self] state in
                 switch state {
@@ -54,7 +54,7 @@ final class ScriptedRedisServer: @unchecked Sendable {
             else { self.receive(connection, buffered: buffer) }
         }
     }
-    func commands() -> [[String]] { queue.sync { received.map { $0.map { String(decoding: $0, as: UTF8.self) } } } }
-    func connectionCount() -> Int { queue.sync { connections.count } }
-    func stop() { queue.sync { listener.cancel(); connections.forEach { $0.cancel() }; connections.removeAll() } }
+    public func commands() -> [[String]] { queue.sync { received.map { $0.map { String(decoding: $0, as: UTF8.self) } } } }
+    public func connectionCount() -> Int { queue.sync { connections.count } }
+    public func stop() { queue.sync { listener.cancel(); connections.forEach { $0.cancel() }; connections.removeAll() } }
 }

@@ -4,12 +4,19 @@ import RillCore
 @main
 struct RillApp: App {
     @StateObject private var model = AppModel()
+    @StateObject private var updater = AppUpdater()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
-        Window("Rill", id: "main") { WorkspaceView().environmentObject(model).onAppear { delegate.model = model } }
+        Window("rill", id: "main") {
+            WorkspaceView().environmentObject(model).environmentObject(updater)
+                .onAppear { delegate.model = model; updater.start(model: model) }
+        }
             .defaultSize(width: 1260, height: 800)
             .windowToolbarStyle(.unified)
             .commands {
+                CommandGroup(after: .appInfo) {
+                    Button("检查更新…") { updater.checkForUpdates() }.disabled(!updater.canCheckForUpdates)
+                }
                 CommandGroup(replacing: .newItem) {
                     Button("新建连接…") { model.editConnection(nil) }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(model.busy)
                     Button("新建键…") { model.sheet = EditorSheet(kind: .newKey) }.keyboardShortcut("n", modifiers: .command).disabled(!model.canWrite)
@@ -33,6 +40,7 @@ struct RillApp: App {
                     }
                 }
             }
+        Settings { UpdateSettingsView().environmentObject(updater) }
     }
 }
 

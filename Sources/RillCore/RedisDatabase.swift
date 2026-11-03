@@ -315,7 +315,8 @@ public final class RedisDatabase: @unchecked Sendable {
         case .stream: command = [Data("XADD".utf8), key, Data("*".utf8)] + (try Self.streamFields(value))
         case .unknown: throw RedisError.message("请选择支持的数据类型。")
         }
-        let script = "if redis.call('EXISTS',KEYS[1])~=0 then return 0 end local ttl=table.remove(ARGV,1); redis.call(unpack(ARGV)); if ttl~='' then redis.call('PEXPIRE',KEYS[1],ttl) end return 1"
+        // Lua errors do not roll back writes; validate expiry on the missing key before creating it.
+        let script = "if redis.call('EXISTS',KEYS[1])~=0 then return 0 end local ttl=table.remove(ARGV,1); if ttl~='' then redis.call('PEXPIRE',KEYS[1],ttl) end redis.call(unpack(ARGV)); if ttl~='' then redis.call('PEXPIRE',KEYS[1],ttl) end return 1"
         try requireSuccess(try await atomic(script, key: key, args: [Data((ttl.map { String($0 * 1000) } ?? "").utf8)] + command))
     }
     public static func streamFields(_ data: Data) throws -> [Data] {

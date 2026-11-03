@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import RillTestSupport
 @testable import RillCore
 
 private final class TestRedis {
@@ -53,6 +54,33 @@ final class RedisIntegrationTests: XCTestCase {
     override func setUp() async throws { server = try TestRedis(); db = try await server.connect() }
     override func tearDown() async throws { db?.close(); db = nil; server = nil }
     private func data(_ text: String) -> Data { Data(text.utf8) }
+
+    func testCreateWithDeniedTTLPreservesMissingKeys() async throws {
+        _ = try await db.wire.execute(["ACL", "SETUSER", "no-expiry", "on", ">fixture", "~*", "+@all", "-pexpire"])
+        let restricted = try await RedisDatabase.connect(ConnectionProfile(port: server.port, username: "no-expiry"), password: "fixture")
+        defer { restricted.close() }
+        for kind in KeyKind.editable {
+            let key = data("denied-ttl:" + kind.rawValue)
+            do {
+                try await restricted.create(key: key, kind: kind, field: data("f"), value: kind == .stream ? data(#"{"event":"created"}"#) : data("v"), ttl: 60)
+                XCTFail("Missing PEXPIRE permission must reject creation")
+            } catch { }
+            let exists = try await db.wire.execute([data("EXISTS"), key])
+            XCTAssertEqual(exists.number, 0, "TTL failure must not leave a permanent \(kind) key")
+        }
+    }
+
+    func testCreateWithOverflowingAbsoluteTTLPreservesMissingKeys() async throws {
+        for kind in KeyKind.editable {
+            let key = data("overflow-ttl:" + kind.rawValue)
+            do {
+                try await db.create(key: key, kind: kind, field: data("f"), value: kind == .stream ? data(#"{"event":"created"}"#) : data("v"), ttl: Int64.max / 1000)
+                XCTFail("An expiration beyond the server timestamp range must fail")
+            } catch { }
+            let exists = try await db.wire.execute([data("EXISTS"), key])
+            XCTAssertEqual(exists.number, 0, "Invalid TTL must not leave a permanent \(kind) key")
+        }
+    }
 
     func testEncodedValueSaveKeepsTTLChecksRawConflictAndRetainsSnapshot() async throws {
         for codec in ValueCodec.allCases {

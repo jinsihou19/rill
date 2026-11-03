@@ -1,16 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleExecutable</key><string>Rill</string>
+  <key>CFBundleExecutable</key><string>rill</string>
   <key>CFBundleIdentifier</key><string>app.rill.redis</string>
-  <key>CFBundleName</key><string>Rill</string>
-  <key>CFBundleDisplayName</key><string>Rill</string>
+  <key>CFBundleName</key><string>rill</string>
+  <key>CFBundleDisplayName</key><string>rill</string>
+  <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
+  <key>CFBundleLocalizations</key><array><string>zh-Hans</string></array>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.2.4</string>
-  <key>CFBundleVersion</key><string>6</string>
-  <key>CFBundleIconFile</key><string>Rill</string>
+  <key>CFBundleShortVersionString</key><string>0.2.5</string>
+  <key>CFBundleVersion</key><string>7</string>
+  <key>CFBundleIconFile</key><string>rill</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
-  <key>NSHumanReadableCopyright</key><string>Rill · Redis for Mac</string>
+  <key>SUFeedURL</key><string>https://raw.githubusercontent.com/jinsihou19/rill/main/appcast.xml</string>
+  <key>SUPublicEDKey</key><string>aXjMVALM1TiEXrlIYqnm4g61bz0QN5Rzv+bvlRXwXxA=</string>
+  <key>SUEnableAutomaticChecks</key><true/>
+  <key>SUScheduledCheckInterval</key><integer>86400</integer>
+  <key>SUAllowsAutomaticUpdates</key><false/>
+  <key>SUAutomaticallyUpdate</key><false/>
+  <key>SUVerifyUpdateBeforeExtraction</key><true/>
+  <key>SURequireSignedFeed</key><true/>
+  <key>NSHumanReadableCopyright</key><string>rill · Redis for Mac</string>
 </dict></plist>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>rill</title>
+    <link>https://github.com/jinsihou19/rill</link>
+    <description>rill stable updates. Signed releases are added after publication.</description>
+    <language>zh-CN</language>
+  </channel>
+</rss><!-- sparkle-signatures:
+edSignature: xlJv4xHgBf4Y9SZ7tuRPKCZScnu28YDyxJPTpXXKzuCLrUAwMl/ZvrngghjKK0EZiwOt9KRREVYqiJH9bZZPAw==
+length: 614
+-->

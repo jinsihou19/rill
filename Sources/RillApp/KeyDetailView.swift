@@ -35,6 +35,7 @@ struct KeyDetailView: View {
                 }
             }
         }.background(RillTheme.canvas)
+            .onChange(of: model.selectedKeyID) { localMemberFilter = ""; selectedRow = nil }
     }
 
     private func header(_ page: KeyPage) -> some View {
@@ -191,7 +192,7 @@ struct KeyDetailView: View {
                 Text("已达 1 万成员 / 16 MiB 上限，请缩小筛选范围；当前结果不完整。")
                     .font(.system(size: 11)).foregroundStyle(.orange).padding(12)
             }
-        }.onChange(of: page.key.id) { localMemberFilter = ""; selectedRow = nil }
+        }
     }
     private func columnTitle(_ kind: KeyKind) -> String {
         switch kind { case .hash: return "Field"; case .list: return "Index"; case .stream: return "Entry ID"; default: return "Member" }
