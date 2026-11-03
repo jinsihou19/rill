@@ -110,7 +110,6 @@ final class AppModel: ObservableObject {
     private var trendRevision = UUID()
     private var analysisRevision = UUID()
     @Published var savedSearches: [SavedKeySearch] = []
-    @Published var historySearch = ""
     @Published var consoleHistory = CommandHistory()
     private var histories: [String: CommandHistory] = [:]
     private var historyDraft = ""
@@ -202,7 +201,7 @@ final class AppModel: ObservableObject {
         searchMode = preferences.searchMode; search = preferences.search; typeFilter = preferences.kind
         valueCodec = preferences.codec; valueFormat = preferences.format
         showKeyTypes = preferences.showTypes; showKeyTTL = preferences.showTTL; savedSearches = preferences.searches
-        consoleHistory = histories[workspaceID(profile)] ?? CommandHistory(); historyIndex = consoleHistory.commands.count; historySearch = ""
+        consoleHistory = histories[workspaceID(profile)] ?? CommandHistory(); historyIndex = consoleHistory.commands.count
         namespaceSeparator = preferences.separator; grouped = preferences.grouped; namespaceExpansion = preferences.expansion
         let token = generation
         connectTask = Task { [self] in

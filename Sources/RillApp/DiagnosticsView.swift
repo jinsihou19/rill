@@ -6,6 +6,7 @@ struct ConsoleView: View {
     @EnvironmentObject private var model: AppModel
     @FocusState private var focused: Bool
     @State private var helpExpanded = true
+    @State private var showHistory = false
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -57,13 +58,15 @@ struct ConsoleView: View {
                             .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 4))
                     }
                     Spacer()
-                    Menu("历史") {
-                        ForEach(model.consoleHistory.matching(model.historySearch), id: \.self) { command in
-                            Button(String(command.prefix(100))) { model.recallCommand(command); focused = true }
+                    Button { showHistory = true } label: {
+                        Label("历史 \(model.consoleHistory.commands.count)", systemImage: "clock.arrow.circlepath")
+                    }.buttonStyle(.borderless).fixedSize().disabled(model.isConsoleRunning)
+                        .keyboardShortcut("r", modifiers: .control).help("查找命令历史 · ⌃R").accessibilityIdentifier("consoleHistory")
+                        .popover(isPresented: $showHistory, arrowEdge: .bottom) {
+                            ConsoleHistoryView(history: model.consoleHistory, scope: "\(model.activeProfile?.name ?? "当前连接") · DB \(model.activeProfile?.database ?? 0)") { command in
+                                model.recallCommand(command); showHistory = false; focused = true
+                            } onCancel: { showHistory = false; focused = true }
                         }
-                    }.fixedSize()
-                    TextField("搜索历史", text: $model.historySearch).textFieldStyle(.roundedBorder).frame(width: 110)
-                        .help("按当前连接和 DB 筛选内存历史；选中只填入，不执行")
                 }
                 if let guide = CommandGuide.lookup(model.consoleInput) {
                     DisclosureGroup("参数帮助 · 离线", isExpanded: $helpExpanded) {
@@ -80,10 +83,12 @@ struct ConsoleView: View {
                         .disabled(model.isConsoleRunning).accessibilityIdentifier("consoleInput")
                     Button { model.runConsole() } label: {
                         if model.isConsoleRunning { ProgressView().controlSize(.small) } else { Label("执行", systemImage: "arrow.turn.down.left") }
-                    }.buttonStyle(.borderedProminent).keyboardShortcut(.return, modifiers: .command).disabled(model.busy || model.consoleInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }.buttonStyle(.borderedProminent).keyboardShortcut(.return, modifiers: .command).disabled(showHistory || model.busy || model.consoleInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }.padding(12).background(RillTheme.canvas, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(RillTheme.border))
             }.padding(20).background(RillTheme.panel.opacity(0.4))
         }.onDisappear { model.stopDiagnostics() }
+            .onChange(of: model.activeProfile) { _, _ in showHistory = false }
+            .onChange(of: model.isConsoleRunning) { _, running in if !running { focused = true } }
     }
     private var suggestions: [String] {
         let prefix = model.consoleInput.split(separator: " ").first.map(String.init)?.uppercased() ?? ""

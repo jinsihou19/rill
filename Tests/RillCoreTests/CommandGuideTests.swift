@@ -30,4 +30,17 @@ final class CommandGuideTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(SavedKeySearch.self, from: JSONEncoder().encode(value)), value)
         XCTAssertTrue(value.label.contains("00 FF 3A"))
     }
+    func testHistorySearchShowsNewestFirstAndKeepsOriginalCommandOnRecall() {
+        var history = CommandHistory()
+        let quoted = #"  GET "Key Space"  "#
+        history.record("PING"); history.record(quoted); history.record("ECHO 中文")
+        XCTAssertEqual(history.matching("  \n "), ["ECHO 中文", quoted, "PING"])
+        XCTAssertEqual(history.matching(" key SPACE \n"), [quoted])
+        XCTAssertEqual(history.matching("中文"), ["ECHO 中文"])
+        XCTAssertEqual(history.matching(" pInG "), ["PING"])
+        XCTAssertTrue(history.matching("not-found").isEmpty)
+        history.record(quoted)
+        XCTAssertEqual(history.matching("").first, quoted)
+        XCTAssertEqual(history.commands.count, 3)
+    }
 }

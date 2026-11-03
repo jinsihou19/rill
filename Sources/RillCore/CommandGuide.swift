@@ -61,7 +61,8 @@ public struct CommandHistory: Sendable {
         if commands.count > 100 { commands.removeFirst(commands.count - 100) }
     }
     public func matching(_ query: String) -> [String] {
-        commands.reversed().filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return commands.reversed().filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
     }
 }
 
