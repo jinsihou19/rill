@@ -161,10 +161,10 @@ struct KeyDetailView: View {
             Table(localMemberFilter.isEmpty || page.key.kind != .list ? page.rows : page.rows.filter { $0.valueText.localizedCaseInsensitiveContains(localMemberFilter) }, selection: $selectedRow) {
                 TableColumn(columnTitle(page.key.kind)) { row in
                     Text(DataPresentation.previewKey(row.field)).font(RillTheme.mono).lineLimit(2).textSelection(.enabled)
-                }.width(min: 95, ideal: page.key.kind == .stream ? 150 : 150, max: 250)
+                }.width(min: 95, ideal: page.key.kind == .set ? 420 : 150)
                 TableColumn(page.key.kind == .zset ? "Score" : page.key.kind == .set ? "字节" : "Value") { row in
                     Text(page.key.kind == .set ? String(row.value.count) : row.score ?? RESPValue.bulk(row.value).preview(maximumCharacters: 500)).font(RillTheme.mono).lineLimit(page.key.kind == .stream ? 4 : 3).textSelection(.enabled)
-                }.width(min: 150, ideal: 320)
+                }.width(min: page.key.kind == .set ? 64 : 150, ideal: page.key.kind == .set ? 80 : 320, max: page.key.kind == .set ? 120 : nil)
                 TableColumn("") { row in
                     Menu {
                         Button("复制值", systemImage: "doc.on.doc") { copyText(row.valueText); model.notify("已复制") }

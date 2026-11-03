@@ -2,7 +2,7 @@
 
 一个专注日常开发的 macOS 原生 Redis 客户端。SwiftUI + AppKit，Network.framework 直连 Redis，密码保存到 macOS 钥匙串。无第三方 Swift 依赖，无 WebView、Electron 或 Node 运行时。
 
-当前 **v0.2.2 开发版**把命令历史筛选与选择合并为可搜索弹层，见 [历史交互说明](docs/releases/v0.2.2.md)。键名模糊搜索和输入框内模式按钮见 [v0.2.1 搜索修复说明](docs/releases/v0.2.1.md)。此前 R01–R11 的新增功能见 [v0.2.0 版本说明](docs/releases/v0.2.0.md)，逐项提交与实际验收状态见 [迁移实施记录](docs/research/implementation-log.md)。部分原生交互尚待验收，首版 v0.1.0 的历史说明保持独立。
+当前 **v0.2.3 开发版**修复成员表第一列无法继续拖宽的问题，并收窄 Set 字节列，见 [成员列宽修复说明](docs/releases/v0.2.3.md)。命令历史弹层见 [v0.2.2 历史交互说明](docs/releases/v0.2.2.md)，键名模糊搜索见 [v0.2.1 搜索修复说明](docs/releases/v0.2.1.md)。此前 R01–R11 的新增功能见 [v0.2.0 版本说明](docs/releases/v0.2.0.md)，逐项提交与实际验收状态见 [迁移实施记录](docs/research/implementation-log.md)。部分原生交互尚待验收，首版 v0.1.0 的历史说明保持独立。
 
 ## 运行
 
@@ -87,6 +87,6 @@ swift test
 - TLS 只接受系统信任的有效证书，不提供跳过验证开关；当前不提供自定义 CA 或客户端证书界面。
 - 暂不支持 Cluster/Sentinel 路由、内建 SSH、模块编辑器、Pub/Sub、全库迁移、批量删除、自动更新。
 
-当前打包版本为 **v0.2.2 开发版**。本地 Git 标签 `v0.1.0` 固定首版源码；历史首版说明与后续研究、实现及验收记录分开保留。
+当前打包版本为 **v0.2.3 开发版**。本地 Git 标签 `v0.1.0` 固定首版源码；历史首版说明与后续研究、实现及验收记录分开保留。
 
 文档入口见 [文档目录](docs/README.md)：包含 [首版交付说明](docs/releases/v0.1.0.md)、[第一轮调研](docs/research-and-scope.md)、[源码深入研究](docs/research/source-deep-dive.md)、[迁移路线](docs/research/migration-roadmap.md) 和 [验证记录](docs/validation.md)。
