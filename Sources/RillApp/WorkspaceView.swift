@@ -65,6 +65,7 @@ struct WorkspaceView: View {
             case .connection(let profile, let password): ConnectionEditor(profile: profile, password: password)
             case .newKey: DataEditor(mode: .newKey)
             case .row(let row): DataEditor(mode: .row(row))
+            case .rowDetail(let row, let key): RowDetailView(row: row, key: key)
             case .ttl: MetadataEditor(mode: .ttl)
             case .rename: MetadataEditor(mode: .rename)
             case .copy: MetadataEditor(mode: .copy)

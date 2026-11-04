@@ -91,25 +91,58 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate, @preconc
     }
 }
 
-struct UpdateSettingsView: View {
+struct AboutView: View {
     @EnvironmentObject private var updater: AppUpdater
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版" }
+    private var buildNumber: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—" }
     var body: some View {
-        Form {
-            Section {
-                LabeledContent("rill", value: version)
-                Toggle("自动检查更新", isOn: $updater.automaticallyChecksForUpdates).disabled(!updater.canCheckForUpdates)
-                Text(updater.status).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-                HStack {
-                    if updater.waitingToInstall { Button("继续安装并重启") { updater.resumeInstallation() } }
-                    Spacer()
-                    Button("检查更新…") { updater.checkForUpdates() }.disabled(!updater.canCheckForUpdates)
+        VStack(alignment: .leading, spacing: 28) {
+            HStack(spacing: 20) {
+                RillMark(size: 72)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("rill").font(.system(size: 30, weight: .semibold))
+                    Text("Redis for Mac").font(.system(size: 13)).foregroundStyle(.secondary)
+                    Text("版本 \(version)（构建 \(buildNumber)）").font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
-            } header: { Text("更新") } footer: { Text("自动检查只显示新版提示，安装需要确认。请先保存草稿，并等待写入或导出结束。") }
-            Section("链接") {
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("软件更新").font(.system(size: 13, weight: .semibold))
+                VStack(alignment: .leading, spacing: 18) {
+                    Toggle(isOn: $updater.automaticallyChecksForUpdates) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("自动检查更新")
+                            Text("每天检查，有新版本时提醒你。")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.toggleStyle(.switch).disabled(!updater.canCheckForUpdates)
+                        .accessibilityLabel("自动检查更新").accessibilityHint("每天检查，有新版本时提醒你。")
+                    Divider()
+                    HStack(alignment: .center, spacing: 20) {
+                        Text(updater.status).font(.callout).foregroundStyle(.secondary)
+                            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("检查更新…") { updater.checkForUpdates() }
+                            .controlSize(.large).disabled(!updater.canCheckForUpdates)
+                    }
+                    if updater.waitingToInstall {
+                        Button("继续安装并重启") { updater.resumeInstallation() }
+                            .controlSize(.large)
+                    }
+                }.padding(20).background(RillTheme.panel, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(RillTheme.border))
+                Text("安装更新前会征求你的确认。请先保存草稿，并等待写入或导出完成。")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 20) {
                 Link("项目主页", destination: URL(string: "https://github.com/jinsihou19/rill")!)
                 Link("版本发布记录", destination: URL(string: "https://github.com/jinsihou19/rill/releases")!)
+                Spacer()
             }
-        }.formStyle(.grouped).scrollContentBackground(.hidden).padding(12).frame(width: 480, height: 330)
+            .font(.system(size: 12))
+        }.padding(32).frame(width: 600).fixedSize(horizontal: false, vertical: true)
     }
 }

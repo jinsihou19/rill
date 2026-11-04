@@ -5,6 +5,7 @@ import RillCore
 struct RillApp: App {
     @StateObject private var model = AppModel()
     @StateObject private var updater = AppUpdater()
+    @Environment(\.openWindow) private var openWindow
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
         Window("rill", id: "main") {
@@ -14,9 +15,12 @@ struct RillApp: App {
             .defaultSize(width: 1260, height: 800)
             .windowToolbarStyle(.unified)
             .commands {
-                CommandGroup(after: .appInfo) {
+                CommandGroup(replacing: .appInfo) {
+                    Button("关于 rill") { openWindow(id: "about") }
+                    Divider()
                     Button("检查更新…") { updater.checkForUpdates() }.disabled(!updater.canCheckForUpdates)
                 }
+                CommandGroup(replacing: .appSettings) {}
                 CommandGroup(replacing: .newItem) {
                     Button("新建连接…") { model.editConnection(nil) }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(model.busy)
                     Button("新建键…") { model.sheet = EditorSheet(kind: .newKey) }.keyboardShortcut("n", modifiers: .command).disabled(!model.canWrite)
@@ -36,11 +40,15 @@ struct RillApp: App {
                 }
                 CommandGroup(replacing: .help) {
                     Button("查看使用说明") {
-                        if let url = Bundle.main.url(forResource: "README", withExtension: "md") { NSWorkspace.shared.open(url) }
+                        if let url = URL(string: "https://github.com/jinsihou19/rill/blob/main/docs/user-guide.md") { NSWorkspace.shared.open(url) }
                     }
                 }
             }
-        Settings { UpdateSettingsView().environmentObject(updater) }
+        Window("关于 rill", id: "about") {
+            AboutView().environmentObject(updater)
+        }
+        .defaultPosition(.center)
+        .windowResizability(.contentSize)
     }
 }
 

@@ -8,7 +8,7 @@
 
 A native Redis workspace for Mac.
 
-当前源码版本 **v0.2.5**。查看 [更新说明](docs/releases/v0.2.5.md) 和 [代码审核记录](docs/audits/2026-11-03.md)。
+当前源码版本 **v0.2.6**。查看 [更新说明](docs/releases/v0.2.6.md) 和 [代码审核记录](docs/audits/2026-11-03.md)。
 
 <p>
   <img src="https://img.shields.io/badge/macOS-14%2B-222222?logo=apple&amp;logoColor=white" alt="macOS 14 或更新版本">
@@ -24,7 +24,7 @@ rill 是一个 **macOS 原生 Redis 客户端**，支持键浏览、数据编辑
 
 使用 SwiftUI 和 AppKit 构建界面，通过 Network.framework 直连 Redis，密码保存在 macOS 钥匙串中，应用更新使用 Sparkle 2。
 
-截图使用隔离演示数据；以下画面来自 v0.2.3，当前命名和更新入口以 v0.2.5 为准。
+截图使用隔离演示数据；以下画面来自 v0.2.3，当前命名和更新入口以 v0.2.6 为准。
 
 ![rill 数据浏览：命名空间分组、键搜索与 JSON 编辑器](docs/images/data-browser.jpg)
 
@@ -70,7 +70,7 @@ String 编辑将原始字节、解码视图和草稿分开：格式化保留大�
 
 ### 应用内更新
 
-默认每天静默检查；发现新版后在侧栏提示，也可从 **rill 菜单 → 检查更新…** 或 **设置 → 更新** 手动检查。更新窗口展示改动说明，下载的更新源和安装包经过签名验证。安装前检查草稿、写入和导出状态，由用户决定继续。详见 [更新与发布](docs/updates.md)。
+默认每天静默检查；发现新版后在侧栏提示，也可从 **rill 菜单 → 检查更新…** 或 **rill 菜单 → 关于 rill** 手动检查。关于窗口同时显示版本与构建号。更新窗口展示改动说明，下载的更新源和安装包经过签名验证。安装前检查草稿、写入和导出状态，由用户决定继续。详见 [更新与发布](docs/updates.md)。
 
 ## 快速开始
 
@@ -97,6 +97,8 @@ cd rill
 ```
 
 构建完成后会打开 `build/rill.app`。将它复制到「应用程序」目录即可安装。
+
+重新构建前先退出目标应用；脚本会拒绝替换正在使用的应用包。如需并行运行，可用 `RILL_BUILD_APP_PATH` 指定其他输出路径。若保存连接时报 `UNIX[No such file or directory]`，且应用刚被构建替换，请退出并重新打开后重试。
 
 也可以在 Xcode 中打开 `Package.swift`，或直接运行：
 

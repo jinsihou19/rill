@@ -164,22 +164,37 @@ struct KeyDetailView: View {
                     Text(DataPresentation.previewKey(row.field)).font(RillTheme.mono).lineLimit(2).textSelection(.enabled)
                 }.width(min: 95, ideal: page.key.kind == .set ? 420 : 150)
                 TableColumn(page.key.kind == .zset ? "Score" : page.key.kind == .set ? "字节" : "Value") { row in
-                    Text(page.key.kind == .set ? String(row.value.count) : row.score ?? RESPValue.bulk(row.value).preview(maximumCharacters: 500)).font(RillTheme.mono).lineLimit(page.key.kind == .stream ? 4 : 3).textSelection(.enabled)
+                    Text(page.key.kind == .set ? String(row.value.count) : row.score ?? row.collectionPreview).font(RillTheme.mono).lineLimit(page.key.kind == .stream ? 4 : 3).textSelection(.enabled)
                 }.width(min: page.key.kind == .set ? 64 : 150, ideal: page.key.kind == .set ? 80 : 320, max: page.key.kind == .set ? 120 : nil)
                 TableColumn("") { row in
-                    Menu {
-                        Button("复制值", systemImage: "doc.on.doc") { copyText(row.valueText); model.notify("已复制") }
-                        if [.hash, .list, .zset].contains(page.key.kind) {
-                            Button("编辑", systemImage: "pencil") { model.sheet = EditorSheet(kind: .row(row)) }.disabled(!model.canWrite)
-                        }
-                        if page.key.kind != .list {
-                            Button("删除成员", systemImage: "trash", role: .destructive) {
-                                model.mutate("删除成员", message: "从「\(page.key.name)」中删除「\(row.fieldText)」。", destructive: true) { try await $0.deleteRow(key: page.key.bytes, kind: page.key.kind, row: row) }
-                            }.disabled(!model.canWrite)
-                        }
-                    } label: { Image(systemName: "ellipsis") }.menuIndicator(.hidden).menuStyle(.borderlessButton).fixedSize().accessibilityLabel("成员 \(DataPresentation.previewKey(row.field)) 的操作")
-                }.width(25)
+                    HStack(spacing: 8) {
+                        Button("查看") { model.sheet = EditorSheet(kind: .rowDetail(row, page.key)) }
+                            .buttonStyle(.borderless).help("查看完整内容 · 也可双击行")
+                            .accessibilityLabel("查看成员 \(DataPresentation.previewKey(row.field)) 的完整内容")
+                        Menu {
+                            Button("复制值", systemImage: "doc.on.doc") { copyText(row.valueText); model.notify("已复制") }
+                            if [.hash, .list, .zset].contains(page.key.kind) {
+                                Button("编辑", systemImage: "pencil") { model.sheet = EditorSheet(kind: .row(row)) }.disabled(!model.canWrite)
+                            }
+                            if page.key.kind != .list {
+                                Button("删除成员", systemImage: "trash", role: .destructive) {
+                                    model.mutate("删除成员", message: "从「\(page.key.name)」中删除「\(row.fieldText)」。", destructive: true) { try await $0.deleteRow(key: page.key.bytes, kind: page.key.kind, row: row) }
+                                }.disabled(!model.canWrite)
+                            }
+                        } label: { Image(systemName: "ellipsis") }.menuIndicator(.hidden).menuStyle(.borderlessButton).fixedSize().accessibilityLabel("成员 \(DataPresentation.previewKey(row.field)) 的操作")
+                    }
+                }.width(70)
             }.tableStyle(.inset(alternatesRowBackgrounds: true))
+                .contextMenu(forSelectionType: String.self) { ids in
+                    if let row = page.rows.first(where: { ids.contains($0.id) }) {
+                        Button("查看完整内容") { model.sheet = EditorSheet(kind: .rowDetail(row, page.key)) }
+                        Button("复制值") { copyText(row.valueText); model.notify("已复制") }
+                    }
+                } primaryAction: { ids in
+                    if let row = page.rows.first(where: { ids.contains($0.id) }) {
+                        model.sheet = EditorSheet(kind: .rowDetail(row, page.key))
+                    }
+                }
             if page.hasMore {
                 HStack {
                     Text(page.readState == .paused ? "已停止，可继续" : "已加载范围；并发修改可能影响分页").font(.system(size: 10)).foregroundStyle(.tertiary)

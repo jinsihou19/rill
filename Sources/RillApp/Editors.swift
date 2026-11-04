@@ -234,7 +234,7 @@ struct ConfirmationView: View {
     }
 }
 
-private struct SheetHeading: View {
+struct SheetHeading: View {
     let symbol: String, title: String, subtitle: String
     var body: some View {
         HStack(spacing: 13) {

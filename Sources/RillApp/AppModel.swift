@@ -15,7 +15,7 @@ enum WorkspaceTab: String, CaseIterable, Identifiable {
 
 struct EditorSheet: Identifiable {
     enum Kind {
-        case connection(ConnectionProfile, String), newKey, row(ValueRow?), ttl, rename, copy
+        case connection(ConnectionProfile, String), newKey, row(ValueRow?), rowDetail(ValueRow, RedisKey), ttl, rename, copy
     }
     let id = UUID()
     let kind: Kind
