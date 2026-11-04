@@ -1,10 +1,10 @@
-# rill 应用内更新与发布
+# Rill 应用内更新与发布
 
 [项目首页](../README.md) · [文档目录](README.md)
 
 ## 使用
 
-从 **rill 菜单 → 检查更新…** 或 **rill 菜单 → 关于 rill** 手动检查。默认每天自动检查；后台发现新版时，侧栏显示更新按钮，不主动弹出安装窗口。自动检查可以在关于窗口中关闭。
+从 **Rill 菜单 → 检查更新…** 或 **Rill 菜单 → 关于 Rill** 手动检查。默认每天自动检查；后台发现新版时，侧栏显示更新按钮，不主动弹出安装窗口。自动检查可以在关于窗口中关闭。
 
 关于窗口显示应用版本与构建号，例如“版本 0.2.6（构建 8）”，并提供项目主页和版本发布记录。当前暂不提供独立设置窗口。
 
@@ -20,7 +20,7 @@ v0.2.4 及更早版本没有更新组件，需要先手动安装支持更新的�
 - 安装包：[GitHub Releases](https://github.com/jinsihou19/rill/releases)。
 - 更新组件：固定 Sparkle 2.10.1，应用打包时内嵌框架，保留其原始签名及符号链接。
 - 更新源和安装包均验证 Ed25519 签名，先校验安装包再解压。签名公钥随应用发布。
-- rill 使用独立签名账户 `app.rill.redis`；私钥存于发布者的 macOS Keychain，CI 使用仓库加密 Secret `SPARKLE_PRIVATE_KEY`，私钥不进入 Git。
+- Rill 使用独立签名账户 `app.rill.redis`；私钥存于发布者的 macOS Keychain，CI 使用仓库加密 Secret `SPARKLE_PRIVATE_KEY`，私钥不进入 Git。
 - 内部 `CFBundleVersion` 必须单调递增；对外版本使用 `CFBundleShortVersionString`。Bundle ID 和连接 / 密码存储保持兼容。
 
 实现参考 [CodexMeter](https://github.com/jinsihou19/CodexMeter) 的静默检查、应用内提示与发布说明内嵌方案。接口与打包规则按 [Sparkle 官方文档](https://sparkle-project.org/documentation/) 核对。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run rill against an isolated, ephemeral, real Redis instance. Never touches port 6379."""
+"""Run Rill against an isolated, ephemeral, real Redis instance. Never touches port 6379."""
 import json
 import os
 from pathlib import Path
@@ -42,9 +42,9 @@ with tempfile.TemporaryDirectory(prefix="rill-demo-") as directory:
             response = client.recv(65536)
             if response.startswith(b"-"):
                 raise RuntimeError(response.decode())
-        execute("SET", "app:settings", json.dumps({"name": "rill", "environment": "development", "theme": "system", "features": {"native_ui": True, "safe_edits": True, "scan_batch_size": 200}, "message": "让 Redis 工作，轻松一点。"}, ensure_ascii=False, indent=2))
+        execute("SET", "app:settings", json.dumps({"name": "Rill", "environment": "development", "theme": "system", "features": {"native_ui": True, "safe_edits": True, "scan_batch_size": 200}, "message": "让 Redis 工作，轻松一点。"}, ensure_ascii=False, indent=2))
         execute("SET", "app:version", "1.0.0")
-        execute("SET", "cache:homepage", json.dumps({"title": "Hello, rill", "cached": True}, indent=2), "EX", 3600)
+        execute("SET", "cache:homepage", json.dumps({"title": "Hello, Rill", "cached": True}, indent=2), "EX", 3600)
         execute("SET", "cache:binary", b"\x00\x01\x02\xffRedis\r\n\x10\x80")
         execute("SET", "cache:empty", "")
         execute("SET", "counter:pageviews", "128493")

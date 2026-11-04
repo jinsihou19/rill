@@ -100,7 +100,7 @@ struct AboutView: View {
             HStack(spacing: 20) {
                 RillMark(size: 72)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("rill").font(.system(size: 30, weight: .semibold))
+                    Text("Rill").font(.system(size: 30, weight: .semibold))
                     Text("Redis for Mac").font(.system(size: 13)).foregroundStyle(.secondary)
                     Text("版本 \(version)（构建 \(buildNumber)）").font(.system(size: 11)).foregroundStyle(.tertiary)
                 }

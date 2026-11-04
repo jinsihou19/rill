@@ -1,4 +1,4 @@
-# rill 文档
+# Rill 文档
 
 [返回项目首页](../README.md)
 

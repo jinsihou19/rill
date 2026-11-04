@@ -34,7 +34,7 @@ struct WorkspaceView: View {
             }.background(RillTheme.canvas)
         }
         .frame(minWidth: 1020, minHeight: 660)
-        .navigationTitle(model.activeProfile?.name ?? "rill")
+        .navigationTitle(model.activeProfile?.name ?? "Rill")
         .tint(RillTheme.accent)
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -88,7 +88,7 @@ struct WorkspaceView: View {
             HStack(spacing: 10) {
                 RillMark(size: 31)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("rill").font(.system(size: 19, weight: .semibold, design: .rounded))
+                    Text("Rill").font(.system(size: 19, weight: .semibold, design: .rounded))
                     Text("REDIS FOR MAC").font(.system(size: 8, weight: .medium)).tracking(1.5).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -300,7 +300,7 @@ struct WorkspaceView: View {
                 welcomeFeature("command", "为键盘而生")
             }.padding(.top, 60)
             Spacer()
-            Text("rill \(appVersion)  /  为每一天的开发而造").font(.system(size: 10)).foregroundStyle(.tertiary).padding(.bottom, 25)
+            Text("Rill \(appVersion)  /  为每一天的开发而造").font(.system(size: 10)).foregroundStyle(.tertiary).padding(.bottom, 25)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(25)
     }
     private func welcomeFeature(_ icon: String, _ text: String) -> some View {

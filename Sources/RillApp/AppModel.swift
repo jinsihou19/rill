@@ -173,7 +173,7 @@ final class AppModel: ObservableObject {
         do { profiles = try store.load() } catch { self.error = "读取连接配置失败：\(error.localizedDescription)" }
         favorites = Set(UserDefaults.standard.stringArray(forKey: "favoriteKeys") ?? [])
         if let portText = ProcessInfo.processInfo.environment["RILL_DEMO_PORT"], let port = Int(portText) {
-            let profile = ConnectionProfile(name: "rill 演示", port: port, environment: .local)
+            let profile = ConnectionProfile(name: "Rill 演示", port: port, environment: .local)
             demoID = profile.id; profiles.append(profile)
             Task { connect(profile) }
         }

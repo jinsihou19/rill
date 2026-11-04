@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/images/icon.png" alt="rill 图标" width="96" height="96">
+<img src="docs/images/icon.png" alt="Rill 图标" width="96" height="96">
 
-# rill
+# Rill
 
 **让 Redis 工作，轻松一点。**
 
@@ -20,13 +20,13 @@ A native Redis workspace for Mac.
 
 </div>
 
-rill 是一个 **macOS 原生 Redis 客户端**，支持键浏览、数据编辑、命令执行和服务器状态查看。
+Rill 是一个 **macOS 原生 Redis 客户端**，支持键浏览、数据编辑、命令执行和服务器状态查看。
 
 使用 SwiftUI 和 AppKit 构建界面，通过 Network.framework 直连 Redis，密码保存在 macOS 钥匙串中，应用更新使用 Sparkle 2。
 
 截图使用隔离演示数据；以下画面来自 v0.2.3，当前命名和更新入口以 v0.2.6 为准。
 
-![rill 数据浏览：命名空间分组、键搜索与 JSON 编辑器](docs/images/data-browser.jpg)
+![Rill 数据浏览：命名空间分组、键搜索与 JSON 编辑器](docs/images/data-browser.jpg)
 
 ## 功能
 
@@ -58,7 +58,7 @@ String 编辑将原始字节、解码视图和草稿分开：格式化保留大�
 
 工作台使用独立于数据浏览的 Redis 连接，连续命令复用会话；历史按连接和 DB 隔离，仅保存在本次应用会话中。
 
-![rill 命令工作台：结构化结果、连接复用与命令耗时](docs/images/console.jpg)
+![Rill 命令工作台：结构化结果、连接复用与命令耗时](docs/images/console.jpg)
 
 ### 服务器状态
 
@@ -70,7 +70,7 @@ String 编辑将原始字节、解码视图和草稿分开：格式化保留大�
 
 ### 应用内更新
 
-默认每天静默检查；发现新版后在侧栏提示，也可从 **rill 菜单 → 检查更新…** 或 **rill 菜单 → 关于 rill** 手动检查。关于窗口同时显示版本与构建号。更新窗口展示改动说明，下载的更新源和安装包经过签名验证。安装前检查草稿、写入和导出状态，由用户决定继续。详见 [更新与发布](docs/updates.md)。
+默认每天静默检查；发现新版后在侧栏提示，也可从 **Rill 菜单 → 检查更新…** 或 **Rill 菜单 → 关于 Rill** 手动检查。关于窗口同时显示版本与构建号。更新窗口展示改动说明，下载的更新源和安装包经过签名验证。安装前检查草稿、写入和导出状态，由用户决定继续。详见 [更新与发布](docs/updates.md)。
 
 ## 快速开始
 
@@ -116,7 +116,7 @@ brew install redis           # 已有 redis-server 可跳过
 ./scripts/demo.sh
 ```
 
-脚本会启动一个使用随机本地端口的临时 Redis，写入六种数据类型的示例并打开 rill。退出应用后自动清理演示实例和数据。
+脚本会启动一个使用随机本地端口的临时 Redis，写入六种数据类型的示例并打开 Rill。退出应用后自动清理演示实例和数据。
 
 ### 连接自己的 Redis
 
@@ -213,7 +213,7 @@ swift test
 
 协议与策略单测不依赖服务。集成测试自动启动仅监听 `127.0.0.1` 的临时 Redis，使用随机端口和独立目录；缺少 `redis-server` 时会明确跳过。存储检查用临时配置目录和随机 UUID 的合成密码验证配置与 Keychain，结束后清理测试项。
 
-欢迎提交 Issue 和 PR。报告问题时请附 macOS、Redis 和 rill 版本、复现步骤及脱敏后的错误信息。修改协议或数据读写逻辑时，请补充相应测试。
+欢迎提交 Issue 和 PR。报告问题时请附 macOS、Redis 和 Rill 版本、复现步骤及脱敏后的错误信息。修改协议或数据读写逻辑时，请补充相应测试。
 
 ## 文档
 

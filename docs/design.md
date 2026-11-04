@@ -1,4 +1,4 @@
-# rill 架构与设计
+# Rill 架构与设计
 
 [项目首页](../README.md) · [文档目录](README.md)
 

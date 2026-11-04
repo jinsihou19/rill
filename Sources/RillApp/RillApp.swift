@@ -8,7 +8,7 @@ struct RillApp: App {
     @Environment(\.openWindow) private var openWindow
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
-        Window("rill", id: "main") {
+        Window("Rill", id: "main") {
             WorkspaceView().environmentObject(model).environmentObject(updater)
                 .onAppear { delegate.model = model; updater.start(model: model) }
         }
@@ -16,7 +16,7 @@ struct RillApp: App {
             .windowToolbarStyle(.unified)
             .commands {
                 CommandGroup(replacing: .appInfo) {
-                    Button("关于 rill") { openWindow(id: "about") }
+                    Button("关于 Rill") { openWindow(id: "about") }
                     Divider()
                     Button("检查更新…") { updater.checkForUpdates() }.disabled(!updater.canCheckForUpdates)
                 }
@@ -44,7 +44,7 @@ struct RillApp: App {
                     }
                 }
             }
-        Window("关于 rill", id: "about") {
+        Window("关于 Rill", id: "about") {
             AboutView().environmentObject(updater)
         }
         .defaultPosition(.center)

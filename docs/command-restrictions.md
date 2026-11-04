@@ -2,7 +2,7 @@
 
 [使用指南](user-guide.md#命令工作台) · [文档目录](README.md)
 
-核对日期：2026-11-04。本文描述 rill 当前工作台的实际策略，命令支持情况仍取决于 Redis 版本、代理和服务端 ACL。
+核对日期：2026-11-04。本文描述 Rill 当前工作台的实际策略，命令支持情况仍取决于 Redis 版本、代理和服务端 ACL。
 
 ## 为什么 FLUSHDB 被禁止
 
@@ -10,7 +10,7 @@
 
 看到「工作台不执行 FLUSHDB」时，**本次请求在客户端校验阶段被拒绝，没有发送该命令**。这与请求已发送后发生超时的“结果未知”不同。
 
-确需清库，应由有权限的操作人在专用运维终端中核对实例、DB、影响范围和备份后执行。rill 当前没有全库清空入口；应用中的删除操作针对选中的键。
+确需清库，应由有权限的操作人在专用运维终端中核对实例、DB、影响范围和备份后执行。Rill 当前没有全库清空入口；应用中的删除操作针对选中的键。
 
 ## 限制如何生效
 
@@ -19,11 +19,11 @@
 3. **只读连接额外限制：** 仅接受明确识别的只读命令；其他普通写入、未知命令和模块命令都被拒绝。
 4. **生产可写连接额外确认：** 通过上述校验的写入或未知命令，仍需输入连接名称确认。确认不会解除前两类限制。
 
-这些是 rill 的产品边界与误操作保护，**不等同于 Redis 自身禁用命令，也不替代服务端 ACL**。限制依据见 [CommandPolicy](../Sources/RillCore/Models.swift)，工作台发送前还会在 [ConsoleSession](../Sources/RillCore/ConsoleSession.swift) 再次校验；账户权限应由 [Redis ACL](https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/) 控制。
+这些是 Rill 的产品边界与误操作保护，**不等同于 Redis 自身禁用命令，也不替代服务端 ACL**。限制依据见 [CommandPolicy](../Sources/RillCore/Models.swift)，工作台发送前还会在 [ConsoleSession](../Sources/RillCore/ConsoleSession.swift) 再次校验；账户权限应由 [Redis ACL](https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/) 控制。
 
 ## 完整禁止清单
 
-下面的风险等级是结合命令语义和 rill 会话模型的判断，不是 Redis 官方 ACL 分类，也不是发生事故的概率。**极高**表示可能造成大范围数据丢失、停服或拓扑改变；**高**表示可能破坏数据、权限、可用性或暴露业务内容；**中**主要涉及连接状态错位、等待或结果不明确。只读子命令的风险通常较低，但当前部分命令族采取整体拦截。
+下面的风险等级是结合命令语义和 Rill 会话模型的判断，不是 Redis 官方 ACL 分类，也不是发生事故的概率。**极高**表示可能造成大范围数据丢失、停服或拓扑改变；**高**表示可能破坏数据、权限、可用性或暴露业务内容；**中**主要涉及连接状态错位、等待或结果不明确。只读子命令的风险通常较低，但当前部分命令族采取整体拦截。
 
 ### 数据、服务与运维
 
@@ -39,13 +39,13 @@
 | `REPLICAOF`、`SLAVEOF` | 改变复制角色或上游，重新同步可能替换数据、改变读写角色 | 极高 | 使用复制拓扑管理流程 |
 | `REPLCONF`、`SYNC`、`PSYNC` | 属于复制握手或同步协议，连接可能进入复制数据流，超出普通请求/响应模型 | 高 | 交由 Redis 节点和复制工具处理 |
 | `FAILOVER` | 发起复制角色切换，可能影响写入和业务可用性 | 极高 | 使用受控的故障切换流程 |
-| `CLUSTER`、`SENTINEL` | 涉及集群或 Sentinel 的拓扑和管理能力；rill 当前仅支持 standalone，查询子命令也整体禁止 | 高至极高；只读形式较低 | 使用支持对应拓扑的客户端或管理平台 |
+| `CLUSTER`、`SENTINEL` | 涉及集群或 Sentinel 的拓扑和管理能力；Rill 当前仅支持 standalone，查询子命令也整体禁止 | 高至极高；只读形式较低 | 使用支持对应拓扑的客户端或管理平台 |
 | `MIGRATE`、`RESTORE` | 跨实例搬运或恢复序列化数据；`MIGRATE` 默认会移走源键，`REPLACE` 可覆盖目标 | 高 | 使用专门的迁移、恢复工具并核对源和目标；同 DB 复制可用「复制到新键」 |
 | `SAVE` | 同步持久化会占用 Redis 执行时间，数据量大时可能使服务长时间停顿 | 高 | 交由持久化和备份流程管理 |
 | `BGSAVE`、`BGREWRITEAOF` | 后台保存或重写仍会消耗 CPU、内存和磁盘资源，可能放大实例压力 | 高 | 在监控和容量约束下由运维触发 |
 | `KEYS` | 遍历整个 DB，一次返回所有匹配键；大库中可能引起延迟和大响应，即使只读也不安全 | 高 | 使用数据浏览搜索，或分批执行 `SCAN` 并迭代游标 |
 
-上述语义可参照 Redis 官方文档：[SWAPDB](https://redis.io/docs/latest/commands/swapdb/)、[SHUTDOWN](https://redis.io/docs/latest/commands/shutdown/)、[CONFIG SET](https://redis.io/docs/latest/commands/config-set/)、[ACL SETUSER](https://redis.io/docs/latest/commands/acl-setuser/)、[MODULE LOAD](https://redis.io/docs/latest/commands/module-load/)、[REPLICAOF](https://redis.io/docs/latest/commands/replicaof/)、[PSYNC](https://redis.io/docs/latest/commands/psync/)、[CLUSTER](https://redis.io/docs/latest/commands/cluster/)、[MIGRATE](https://redis.io/docs/latest/commands/migrate/)、[RESTORE](https://redis.io/docs/latest/commands/restore/)、[SAVE](https://redis.io/docs/latest/commands/save/)、[BGSAVE](https://redis.io/docs/latest/commands/bgsave/)、[BGREWRITEAOF](https://redis.io/docs/latest/commands/bgrewriteaof/)、[KEYS](https://redis.io/docs/latest/commands/keys/)。表中的工作台限制和风险判断以 rill 当前实现为依据。
+上述语义可参照 Redis 官方文档：[SWAPDB](https://redis.io/docs/latest/commands/swapdb/)、[SHUTDOWN](https://redis.io/docs/latest/commands/shutdown/)、[CONFIG SET](https://redis.io/docs/latest/commands/config-set/)、[ACL SETUSER](https://redis.io/docs/latest/commands/acl-setuser/)、[MODULE LOAD](https://redis.io/docs/latest/commands/module-load/)、[REPLICAOF](https://redis.io/docs/latest/commands/replicaof/)、[PSYNC](https://redis.io/docs/latest/commands/psync/)、[CLUSTER](https://redis.io/docs/latest/commands/cluster/)、[MIGRATE](https://redis.io/docs/latest/commands/migrate/)、[RESTORE](https://redis.io/docs/latest/commands/restore/)、[SAVE](https://redis.io/docs/latest/commands/save/)、[BGSAVE](https://redis.io/docs/latest/commands/bgsave/)、[BGREWRITEAOF](https://redis.io/docs/latest/commands/bgrewriteaof/)、[KEYS](https://redis.io/docs/latest/commands/keys/)。表中的工作台限制和风险判断以 Rill 当前实现为依据。
 
 ### 连接状态与事务
 
@@ -79,7 +79,7 @@
 | `EVAL_RO`、`EVALSHA_RO`、`FCALL_RO` | 只读执行也可能进行大范围读取或长时间计算；当前不提供通用脚本/函数执行能力，因此一并禁止 | 高，主要是性能风险 | 拆成范围明确的只读查询，或在受控流程中运行 |
 | `SCRIPT`、`FUNCTION` | 加载、清理、删除、恢复或终止脚本/函数涉及实例共享状态；查询与帮助子命令也整体禁止 | 中至高，取决于子命令 | 通过程序发布或运维流程管理 |
 
-“只读”并不代表运行成本可控。语义见 [Redis 可编程能力](https://redis.io/docs/latest/develop/programmability/) 和 [EVAL_RO](https://redis.io/docs/latest/commands/eval_ro/)。rill 的可视化编辑内部会使用固定、受控的 Lua 做原值检查和原子修改；这是应用实现路径，不代表工作台允许输入任意 Lua，服务端 ACL 仍需允许相应命令。
+“只读”并不代表运行成本可控。语义见 [Redis 可编程能力](https://redis.io/docs/latest/develop/programmability/) 和 [EVAL_RO](https://redis.io/docs/latest/commands/eval_ro/)。Rill 的可视化编辑内部会使用固定、受控的 Lua 做原值检查和原子修改；这是应用实现路径，不代表工作台允许输入任意 Lua，服务端 ACL 仍需允许相应命令。
 
 ## MEMORY 与 SLOWLOG：只开放明确子命令
 
@@ -103,7 +103,7 @@
 
 常用的 `GET`、`MGET`、`SCAN`、`TYPE`、`TTL`、`HGET`、`LRANGE`、`SMEMBERS`、`ZRANGE`、`XRANGE`、`XINFO`、`INFO`、`DBSIZE` 等已识别读取可通过策略检查；完整识别列表见 [CommandPolicy.isRead](../Sources/RillCore/Models.swift)。
 
-在关闭只读的连接中，上表普通写入和未知/模块命令可以继续交给服务端处理；生产环境还需确认。**未被拦截不代表低风险**：例如普通 `DEL`、覆盖型 `SET` 或大范围集合读取仍可能造成数据损失或性能问题。rill 不会根据业务用途判断一次写入是否正确，也不把命令名称检查作为安全隔离边界。
+在关闭只读的连接中，上表普通写入和未知/模块命令可以继续交给服务端处理；生产环境还需确认。**未被拦截不代表低风险**：例如普通 `DEL`、覆盖型 `SET` 或大范围集合读取仍可能造成数据损失或性能问题。Rill 不会根据业务用途判断一次写入是否正确，也不把命令名称检查作为安全隔离边界。
 
 ## 看到提示后如何处理
 
