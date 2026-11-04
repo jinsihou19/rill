@@ -28,6 +28,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [代码审核与本轮验证](audits/2026-11-03.md) | 全仓关键流程审核、问题复现、修复与验收边界 |
+| [原生回归与安装](audits/2026-11-04-native-regression.md) | 解锁后补验、更新误报修复、签名安装包与已安装应用验收 |
 | [竞品调研与功能边界](research-and-scope.md) | 七个热门客户端的亮点、取舍及功能边界 |
 | [源码深入研究](research/source-deep-dive.md) | 固定源码版本、实现细节与采纳依据 |
 | [迁移路线图](research/migration-roadmap.md) | R01–R14 计划与验收条件 |
