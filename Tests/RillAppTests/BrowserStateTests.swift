@@ -61,6 +61,48 @@ final class BrowserStateTests: XCTestCase {
         }
     }
 
+    func testConsoleRestrictionHelpDoesNotSendCommandsOrLeakIntoOtherErrors() async throws {
+        try await withModel { model, server in
+            let initialCommands = server.commands()
+            for command in ["FLUSHDB", "xread STREAMS s 0", "CONFIG GET *", "MEMORY PURGE", "SLOWLOG RESET"] {
+                model.consoleInput = command
+                model.runConsole()
+                XCTAssertNotNil(model.error)
+                XCTAssertEqual(model.errorHelpURL, CommandPolicy.documentationURL)
+                XCTAssertEqual(model.consoleInput, command)
+                XCTAssertTrue(model.consoleEntries.isEmpty)
+                XCTAssertNil(model.confirmation)
+            }
+            XCTAssertEqual(server.commands(), initialCommands)
+
+            model.activeProfile?.readOnly = true
+            model.consoleInput = "SET key value"
+            model.runConsole()
+            XCTAssertEqual(model.errorHelpURL, CommandPolicy.documentationURL)
+
+            let policyText = try XCTUnwrap(model.error)
+            model.presentError(RedisError.server(policyText))
+            XCTAssertEqual(model.error, policyText)
+            XCTAssertNil(model.errorHelpURL)
+
+            model.runConsole()
+            XCTAssertNotNil(model.errorHelpURL)
+            model.error = nil
+            XCTAssertNil(model.errorHelpURL)
+
+            model.runConsole()
+            model.error = "另一个本地错误"
+            XCTAssertNil(model.errorHelpURL)
+
+            model.runConsole()
+            model.consoleInput = "GET 'unfinished"
+            model.runConsole()
+            XCTAssertEqual(model.error, "引号或转义尚未结束，请补全命令。")
+            XCTAssertNil(model.errorHelpURL)
+            XCTAssertEqual(server.commands(), initialCommands)
+        }
+    }
+
     func testLostMutationReplyReportsUnknownOutcomeAndDoesNotRetry() async throws {
         try await withModel { model, server in
             model.mutate("删除键") { try await $0.deleteKey(Data("slow".utf8)) }

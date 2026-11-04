@@ -327,6 +327,11 @@ struct WorkspaceView: View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
             Text(text).font(.system(size: 12)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            if let url = model.errorHelpURL {
+                Link(destination: url) { Label("查看限制与风险", systemImage: "arrow.up.right") }
+                    .font(.system(size: 12)).fixedSize()
+                    .accessibilityHint("在默认浏览器中打开命令限制与风险说明")
+            }
             Button { model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain).accessibilityLabel("关闭错误提示")
         }.padding(13).background(Color.orange.opacity(0.08))
     }

@@ -115,7 +115,8 @@ final class AppModel: ObservableObject {
     private var historyDraft = ""
     @Published var consoleInput = ""
     @Published var consoleEntries: [ConsoleEntry] = []
-    @Published var error: String?
+    @Published var error: String? { didSet { errorHelpURL = nil } }
+    @Published private(set) var errorHelpURL: URL?
     @Published var toast: String?
     @Published var sheet: EditorSheet?
     @Published var confirmation: ConfirmationRequest?
@@ -185,7 +186,10 @@ final class AppModel: ObservableObject {
             if !Task.isCancelled { toast = nil }
         }
     }
-    func presentError(_ failure: Error) { error = failure.localizedDescription }
+    func presentError(_ failure: Error) {
+        error = failure.localizedDescription
+        if case .commandPolicy = failure as? RedisError { errorHelpURL = CommandPolicy.documentationURL }
+    }
     func guardDraft(_ action: @escaping () -> Void) {
         if dirty {
             confirmation = ConfirmationRequest(title: "放弃未保存的修改？", message: "当前值有未保存的修改。离开后这些修改会丢失。", button: "放弃修改", destructive: true) { [weak self] in

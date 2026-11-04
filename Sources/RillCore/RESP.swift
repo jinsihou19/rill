@@ -2,6 +2,7 @@ import Foundation
 
 public enum RedisError: LocalizedError, Equatable, Sendable {
     case message(String)
+    case commandPolicy(String)
     case server(String)
     case transport(String)
     public var category: RedisFailureCategory {
@@ -16,6 +17,7 @@ public enum RedisError: LocalizedError, Equatable, Sendable {
     }
     public var errorDescription: String? {
         if case .message(let text) = self { return text }
+        if case .commandPolicy(let text) = self { return text }
         if case .transport(let text) = self { return text }
         guard case .server(let text) = self else { return nil }
         switch category {

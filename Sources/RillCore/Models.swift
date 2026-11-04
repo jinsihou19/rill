@@ -194,6 +194,7 @@ public enum CommandLine {
 }
 
 public enum CommandPolicy {
+    public static let documentationURL = URL(string: "https://github.com/jinsihou19/rill/blob/main/docs/command-restrictions.md")!
     private static let blocked: Set<String> = [
         "AUTH", "SELECT", "HELLO", "QUIT", "RESET", "CLIENT", "MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH",
         "SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE", "UNSUBSCRIBE", "PUNSUBSCRIBE", "SUNSUBSCRIBE", "MONITOR",
@@ -223,12 +224,12 @@ public enum CommandPolicy {
     public static func validate(_ args: [String], readOnly: Bool) throws {
         guard let name = args.first?.uppercased(), !name.isEmpty else { throw RedisError.message("请输入 Redis 命令。") }
         guard !blocked.contains(name), !["XREAD", "XREADGROUP"].contains(name) else {
-            throw RedisError.message("工作台不执行 \(name)。请使用应用的连接/数据库控件，或在专用运维终端执行此类命令。")
+            throw RedisError.commandPolicy("工作台不执行 \(name)。请使用应用的连接/数据库控件，或在专用运维终端执行此类命令。")
         }
         if ["MEMORY", "SLOWLOG"].contains(name), !isRead(args) {
-            throw RedisError.message("工作台只提供 \(name) 的只读诊断子命令。")
+            throw RedisError.commandPolicy("工作台只提供 \(name) 的只读诊断子命令。")
         }
-        guard !readOnly || isRead(args) else { throw RedisError.message("当前连接为只读，不能执行写入或无法确认安全的命令。") }
+        guard !readOnly || isRead(args) else { throw RedisError.commandPolicy("当前连接为只读，不能执行写入或无法确认安全的命令。") }
     }
     public static let suggestions = ["PING", "GET", "SET", "SCAN", "TYPE", "TTL", "PTTL", "HGET", "HSET", "HSCAN", "LRANGE", "RPUSH", "SMEMBERS", "SADD", "ZRANGE", "ZADD", "XRANGE", "XADD", "INFO", "DBSIZE"]
 }
