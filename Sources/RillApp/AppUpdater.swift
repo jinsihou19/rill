@@ -56,7 +56,15 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate, @preconc
         availableVersion = nil; status = "当前已是最新版本。"
     }
 
-    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) { status = "检查更新失败，请稍后重试。\n" + error.localizedDescription }
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        let issue = error as NSError
+        // Sparkle also ends successful no-update checks through this callback.
+        if issue.domain == SUSparkleErrorDomain {
+            if issue.code == Int(SUError.noUpdateError.rawValue) { updaterDidNotFindUpdate(updater); return }
+            if issue.code == Int(SUError.installationCanceledError.rawValue) { status = "已取消安装，可稍后再试。"; return }
+        }
+        status = "检查更新失败，请稍后重试。\n" + error.localizedDescription
+    }
 
     var supportsGentleScheduledUpdateReminders: Bool { true }
     func standardUserDriverShouldHandleShowingScheduledUpdate(_ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool) -> Bool { false }
