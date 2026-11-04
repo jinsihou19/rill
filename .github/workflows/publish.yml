@@ -1,4 +1,4 @@
-name: Package and publish rill
+name: Package and publish Rill
 
 on:
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
           git fetch origin main
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
           gh release create "$tag" "$output"/*.zip "$output"/*.sha256 "$output/appcast.xml" \
-            --target "$(git rev-parse HEAD)" --title "rill $version ($build_number)" \
+            --target "$(git rev-parse HEAD)" --title "Rill $version ($build_number)" \
             --notes-file "docs/releases/v$version.md"
           cp "$output/appcast.xml" appcast.xml
           git config user.name 'github-actions[bot]'
